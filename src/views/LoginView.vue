@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { login } from '@/api/auth'
+import { login, type StoredLoginUser } from '@/api/auth'
+import { saveStoredLoginUser } from '@/utils/authUser'
 import { Lock, LogIn, Mail, Sparkles } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -23,9 +24,15 @@ const handleLogin = async () => {
       email: email.value.trim(),
       password: password.value,
     })
+    const storedUser: StoredLoginUser = {
+      id: data.user.id,
+      name: data.user.username,
+      email: data.user.email,
+      avatar: data.user.avatar,
+    }
     localStorage.setItem('teamup_token', data.token)
-    localStorage.setItem('teamup_user', JSON.stringify(data.user))
-    await router.push('/home')
+    saveStoredLoginUser(storedUser)
+    await router.push('/dashboard')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试'
   } finally {

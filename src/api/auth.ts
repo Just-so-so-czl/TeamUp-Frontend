@@ -5,10 +5,17 @@ export interface Result<T> {
 }
 
 export interface UserSimple {
-  id: number
+  id: string
   email: string
   username: string
   gender: number
+  avatar: number
+}
+
+export interface StoredLoginUser {
+  id: string
+  name: string
+  email: string
   avatar: number
 }
 
@@ -29,6 +36,16 @@ export interface RegisterRequest {
   confirmPassword: string
   gender: number
   avatar: number
+}
+
+export interface CreateTeamRequest {
+  userId: string
+  name: string
+  description: string
+}
+
+export interface CreateTeamResponse {
+  teamId: string
 }
 
 const API_BASE = 'http://localhost:8080'
@@ -55,4 +72,9 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
 
 export async function register(data: RegisterRequest): Promise<void> {
   await request<null>('/user/register', data)
+}
+
+export async function createTeam(data: CreateTeamRequest): Promise<CreateTeamResponse> {
+  const result = await request<CreateTeamResponse>('/team/create', data)
+  return result.data
 }

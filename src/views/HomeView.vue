@@ -1,32 +1,14 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-
-interface UserSimple {
-  id: number
-  email: string
-  username: string
-  gender: number
-  avatar: number
-}
+import { clearAuthStorage, getStoredLoginUser } from '@/utils/authUser'
 
 const router = useRouter()
 
-const user = computed<UserSimple | null>(() => {
-  const raw = localStorage.getItem('teamup_user')
-  if (!raw) {
-    return null
-  }
-  try {
-    return JSON.parse(raw) as UserSimple
-  } catch {
-    return null
-  }
-})
+const user = computed(() => getStoredLoginUser())
 
 const logout = async () => {
-  localStorage.removeItem('teamup_token')
-  localStorage.removeItem('teamup_user')
+  clearAuthStorage()
   await router.push('/login')
 }
 </script>
@@ -35,7 +17,7 @@ const logout = async () => {
   <main class="home-page">
     <section class="card">
       <h1>登录成功，欢迎来到 TeamUp</h1>
-      <p v-if="user">当前用户：{{ user.username }}（{{ user.email }}）</p>
+      <p v-if="user">当前用户：{{ user.name }}（{{ user.email }}）</p>
       <p v-else>未读取到本地用户信息</p>
       <button @click="logout">退出登录</button>
     </section>
