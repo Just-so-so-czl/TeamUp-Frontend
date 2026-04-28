@@ -1,17 +1,26 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { login, type StoredLoginUser } from '@/api/auth'
-import { saveStoredLoginUser } from '@/utils/authUser'
+import { useRoute, useRouter } from 'vue-router'
+import { ApiError, login } from '@/api/auth'
+import type { StoredLoginUser } from '@/utils/authUser'
+import { saveStoredLoginUser, saveStoredToken } from '@/utils/authUser'
 import { Lock, LogIn, Mail, Sparkles } from 'lucide-vue-next'
 
 const router = useRouter()
+const route = useRoute()
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
 const errorMessage = ref('')
 
 const canSubmit = computed(() => email.value.trim().length > 0 && password.value.length > 0 && !loading.value)
+
+const redirectReason = typeof route.query.reason === 'string' ? route.query.reason : ''
+if (redirectReason === 'token_expired') {
+  errorMessage.value = '登录已过期，请重新登录'
+} else if (redirectReason === 'token_invalid') {
+  errorMessage.value = '登录状态无效，请重新登录'
+}
 
 const handleLogin = async () => {
   if (!canSubmit.value) {
@@ -30,11 +39,18 @@ const handleLogin = async () => {
       email: data.user.email,
       avatar: data.user.avatar,
     }
-    localStorage.setItem('teamup_token', data.token)
+    saveStoredToken(data.token)
     saveStoredLoginUser(storedUser)
-    await router.push('/dashboard')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
+    await router.push(redirect)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试'
+    if (error instanceof ApiError && error.errorType === 'TOKEN_EXPIRED') {
+      errorMessage.value = '登录已过期，请重新登录'
+    } else if (error instanceof ApiError && error.errorType === 'TOKEN_INVALID') {
+      errorMessage.value = '登录状态无效，请重新登录'
+    } else {
+      errorMessage.value = error instanceof Error ? error.message : '登录失败，请稍后重试'
+    }
   } finally {
     loading.value = false
   }
@@ -282,3 +298,5 @@ input {
   }
 }
 </style>
+
+

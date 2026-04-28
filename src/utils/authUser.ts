@@ -1,7 +1,12 @@
-import type { StoredLoginUser } from '@/api/auth'
-
 const USER_STORAGE_KEY = 'teamup_user'
 const TOKEN_STORAGE_KEY = 'teamup_token'
+
+export interface StoredLoginUser {
+  id: string
+  name: string
+  email: string
+  avatar: number
+}
 
 interface LegacyStoredUser {
   id?: number | string
@@ -12,7 +17,7 @@ interface LegacyStoredUser {
 }
 
 export function getStoredLoginUser(): StoredLoginUser | null {
-  const raw = localStorage.getItem(USER_STORAGE_KEY)
+  const raw = sessionStorage.getItem(USER_STORAGE_KEY)
   if (!raw) {
     return null
   }
@@ -38,10 +43,18 @@ export function getStoredLoginUser(): StoredLoginUser | null {
 }
 
 export function saveStoredLoginUser(user: StoredLoginUser): void {
-  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
+  sessionStorage.setItem(USER_STORAGE_KEY, JSON.stringify(user))
+}
+
+export function getStoredToken(): string | null {
+  return sessionStorage.getItem(TOKEN_STORAGE_KEY)
+}
+
+export function saveStoredToken(token: string): void {
+  sessionStorage.setItem(TOKEN_STORAGE_KEY, token)
 }
 
 export function clearAuthStorage(): void {
-  localStorage.removeItem(TOKEN_STORAGE_KEY)
-  localStorage.removeItem(USER_STORAGE_KEY)
+  sessionStorage.removeItem(TOKEN_STORAGE_KEY)
+  sessionStorage.removeItem(USER_STORAGE_KEY)
 }

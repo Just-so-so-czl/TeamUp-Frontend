@@ -1,5 +1,5 @@
 ﻿<script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import avatar1 from '@/assets/avatar/a1.png'
 import avatar2 from '@/assets/avatar/a2.png'
@@ -9,8 +9,8 @@ import avatar5 from '@/assets/avatar/a5.png'
 import avatar6 from '@/assets/avatar/a6.png'
 import avatar7 from '@/assets/avatar/a7.png'
 import avatar8 from '@/assets/avatar/a8.png'
-import { getStoredLoginUser } from '@/utils/authUser'
-import { createTeam } from '@/api/auth'
+import { clearAuthStorage, getStoredLoginUser } from '@/utils/authUser'
+import { createTeam, fetchMyTeams, fetchMyMessages, submitJoinRequest, type MyTeam } from '@/api/auth'
 
 interface MenuItem {
   key: string
@@ -19,21 +19,20 @@ interface MenuItem {
 }
 
 interface GroupMember {
-  id: number | string
-  name: string
-  role: string
+  userId: string
+  username: string
+  roleName: string
 }
 
 interface JoinedGroup {
-  id: number | string
+  id: string
   name: string
   description: string
   roleInGroup: string
   createdAt: string
+  memberCount: number
   members: GroupMember[]
 }
-
-const LOCAL_GROUPS_KEY = 'teamup_local_created_groups'
 
 const avatarMap: Record<number, string> = {
   1: avatar1,
@@ -47,16 +46,10 @@ const avatarMap: Record<number, string> = {
 }
 
 const currentUser = computed(() => {
-  const fallbackUser = {
-    id: '',
-    name: 'TeamUp 用户',
-    email: 'guest@teamup.edu.cn',
-    avatar: 1,
-  }
-  return getStoredLoginUser() ?? fallbackUser
+  return getStoredLoginUser()
 })
 
-const currentAvatarSrc = computed(() => avatarMap[currentUser.value.avatar] ?? avatar1)
+const currentAvatarSrc = computed(() => avatarMap[currentUser.value?.avatar ?? 1] ?? avatar1)
 
 const menuItems: MenuItem[] = [
   {
@@ -88,87 +81,94 @@ const menuItems: MenuItem[] = [
 
 const activeMenu = ref('teams')
 const router = useRouter()
+const settingsMenuRef = ref<HTMLElement | null>(null)
+const settingsMenuVisible = ref(false)
+const teamsLoading = ref(false)
+const teamsError = ref('')
+const joinedGroups = ref<JoinedGroup[]>([])
+const pendingMessageCount = ref(0)
 
-const defaultJoinedGroups: JoinedGroup[] = [
-  {
-    id: 1,
-    name: '软件工程课程设计组',
-    description: '围绕 TeamUp 平台完成课程项目，进行需求分析、接口开发与联调测试。',
-    roleInGroup: '组长',
-    createdAt: '2026-03-02',
-    members: [
-      { id: 1, name: '张同学', role: '组长' },
-      { id: 2, name: '李同学', role: '后端开发' },
-      { id: 3, name: '王同学', role: '前端开发' },
-      { id: 4, name: '陈同学', role: '测试' },
-    ],
-  },
-  {
-    id: 2,
-    name: '计算机网络冲刺组',
-    description: '每周集中复盘真题与实验报告，整理错题并进行组内讲解。',
-    roleInGroup: '开发者',
-    createdAt: '2026-02-18',
-    members: [
-      { id: 5, name: '张同学', role: '开发者' },
-      { id: 6, name: '周同学', role: '资料整理' },
-      { id: 7, name: '吴同学', role: '讲解负责人' },
-    ],
-  },
-  {
-    id: 3,
-    name: '算法竞赛训练营',
-    description: '按专题刷题并沉淀题解文档，配合周赛节奏进行训练。',
-    roleInGroup: '文案',
-    createdAt: '2026-01-09',
-    members: [
-      { id: 8, name: '张同学', role: '文案' },
-      { id: 9, name: '赵同学', role: '算法手' },
-      { id: 10, name: '孙同学', role: '代码审阅' },
-      { id: 11, name: '钱同学', role: '资料官' },
-    ],
-  },
-]
-
-const loadLocalCreatedGroups = (): JoinedGroup[] => {
-  const raw = localStorage.getItem(LOCAL_GROUPS_KEY)
-  if (!raw) {
-    return []
+const formatTime = (value: string) => {
+  if (!value) {
+    return '--'
   }
-  try {
-    const parsed = JSON.parse(raw) as JoinedGroup[]
-    if (!Array.isArray(parsed)) {
-      return []
-    }
-    return parsed
-  } catch {
-    return []
-  }
+  return value.replace('T', ' ').slice(0, 16)
 }
 
-const mergeGroups = (base: JoinedGroup[], local: JoinedGroup[]): JoinedGroup[] => {
-  const map = new Map<string, JoinedGroup>()
-  base.forEach((item) => map.set(String(item.id), item))
-  local.forEach((item) => map.set(String(item.id), item))
-  return Array.from(map.values())
-}
-
-const joinedGroups = ref<JoinedGroup[]>(mergeGroups(defaultJoinedGroups, loadLocalCreatedGroups()))
-
-const persistLocalCreatedGroups = () => {
-  const localGroups = joinedGroups.value.filter((item) => !defaultJoinedGroups.some((base) => base.id === item.id))
-  localStorage.setItem(LOCAL_GROUPS_KEY, JSON.stringify(localGroups))
-}
-
-const totalMembers = computed(() => {
-  return joinedGroups.value.reduce((sum, group) => sum + group.members.length, 0)
+const mapTeam = (item: MyTeam): JoinedGroup => ({
+  id: item.teamId,
+  name: item.teamName,
+  description: item.description || '这个小组还没有填写描述，快和大家一起完善吧。',
+  roleInGroup: item.userRoleName,
+  createdAt: formatTime(item.createTime),
+  memberCount: item.memberCount,
+  members: (item.members || []).map((member) => ({
+    userId: member.userId,
+    username: member.username,
+    roleName: member.roleName,
+  })),
 })
+
+const loadMyTeams = async () => {
+  if (!currentUser.value?.id) {
+    joinedGroups.value = []
+    teamsError.value = '未识别到当前用户，请重新登录'
+    return
+  }
+  teamsLoading.value = true
+  teamsError.value = ''
+  try {
+    const result = await fetchMyTeams()
+    joinedGroups.value = (result.teams || []).map(mapTeam)
+  } catch (error) {
+    teamsError.value = error instanceof Error ? error.message : '查询我的小组失败，请稍后重试'
+  } finally {
+    teamsLoading.value = false
+  }
+}
+
+const loadPendingMessageCount = async () => {
+  try {
+    const result = await fetchMyMessages()
+    pendingMessageCount.value = result.pendingMessages?.length ?? 0
+  } catch {
+    pendingMessageCount.value = 0
+  }
+}
+
+const handleMenuClick = async (key: string) => {
+  activeMenu.value = key
+  if (key === 'teams') {
+    await loadMyTeams()
+  }
+}
+
+const displayMembers = (members: GroupMember[]) => {
+  const max = 4
+  return {
+    head: members.slice(0, max),
+    hasMore: members.length > max,
+  }
+}
+
+const totalMembers = computed(() => joinedGroups.value.reduce((sum, group) => sum + group.memberCount, 0))
 
 const createModalVisible = ref(false)
 const createLoading = ref(false)
 const createError = ref('')
 const createForm = ref({
   name: '',
+  description: '',
+})
+
+const joinModalVisible = ref(false)
+const joinLoading = ref(false)
+const joinError = ref('')
+const joinSuccess = ref('')
+const toastVisible = ref(false)
+const toastMessage = ref('')
+const joinForm = ref({
+  inviteCode: '',
   description: '',
 })
 
@@ -192,6 +192,67 @@ const closeCreateModal = () => {
   createModalVisible.value = false
 }
 
+const resetJoinForm = () => {
+  joinForm.value = {
+    inviteCode: '',
+    description: '',
+  }
+  joinError.value = ''
+  joinSuccess.value = ''
+}
+
+const openJoinModal = () => {
+  resetJoinForm()
+  joinModalVisible.value = true
+}
+
+const closeJoinModal = () => {
+  if (joinLoading.value) {
+    return
+  }
+  joinModalVisible.value = false
+}
+
+const showToast = (message: string) => {
+  toastMessage.value = message
+  toastVisible.value = true
+  window.setTimeout(() => {
+    toastVisible.value = false
+    toastMessage.value = ''
+  }, 2000)
+}
+
+const goMessageCenter = async () => {
+  await router.push('/messages')
+}
+
+const pendingMessageBadgeText = computed(() => {
+  if (pendingMessageCount.value > 99) {
+    return '99+'
+  }
+  return String(pendingMessageCount.value)
+})
+
+const toggleSettingsMenu = () => {
+  settingsMenuVisible.value = !settingsMenuVisible.value
+}
+
+const handleLogout = async () => {
+  clearAuthStorage()
+  settingsMenuVisible.value = false
+  await router.replace('/login')
+}
+
+const handleClickOutside = (event: MouseEvent) => {
+  const target = event.target
+  if (!(target instanceof Node)) {
+    return
+  }
+  if (settingsMenuRef.value && !settingsMenuRef.value.contains(target)) {
+    settingsMenuVisible.value = false
+  }
+}
+
 const submitCreateTeam = async () => {
   const name = createForm.value.name.trim()
   const description = createForm.value.description.trim()
@@ -203,7 +264,7 @@ const submitCreateTeam = async () => {
     createError.value = '小组描述最多300个字符'
     return
   }
-  if (!currentUser.value.id) {
+  if (!currentUser.value?.id) {
     createError.value = '未识别到当前用户，请重新登录后再试'
     return
   }
@@ -212,35 +273,63 @@ const submitCreateTeam = async () => {
   createError.value = ''
   try {
     const result = await createTeam({
-      userId: currentUser.value.id,
       name,
       description,
     })
 
-    const today = new Date()
-    const createdAt = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-    joinedGroups.value.unshift({
-      id: result.teamId,
-      name,
-      description: description || '这个小组还没有填写描述，快补充你们的学习目标吧。',
-      roleInGroup: '组长',
-      createdAt,
-      members: [
-        {
-          id: currentUser.value.id,
-          name: currentUser.value.name,
-          role: '组长',
-        },
-      ],
-    })
-    persistLocalCreatedGroups()
-
     createModalVisible.value = false
+    if (activeMenu.value === 'teams') {
+      await loadMyTeams()
+    }
     await router.push('/teams/' + result.teamId)
   } catch (error) {
     createError.value = error instanceof Error ? error.message : '创建小组失败，请稍后重试'
   } finally {
     createLoading.value = false
+  }
+}
+
+const submitJoinTeam = async () => {
+  const inviteCode = joinForm.value.inviteCode.trim()
+  const description = joinForm.value.description.trim()
+  if (!inviteCode) {
+    joinError.value = '请输入邀请码'
+    joinSuccess.value = ''
+    return
+  }
+  if (inviteCode.length > 20) {
+    joinError.value = '邀请码长度不能超过20个字符'
+    joinSuccess.value = ''
+    return
+  }
+  if (description.length > 500) {
+    joinError.value = '备注最多500个字符'
+    joinSuccess.value = ''
+    return
+  }
+  if (!currentUser.value?.id) {
+    joinError.value = '未识别到当前用户，请重新登录后再试'
+    joinSuccess.value = ''
+    return
+  }
+
+  joinLoading.value = true
+  joinError.value = ''
+  joinSuccess.value = ''
+  try {
+    await submitJoinRequest({
+      inviteCode,
+      description: description || undefined,
+    })
+    joinSuccess.value = '入组申请已发送，组长处理后会通知你'
+    joinForm.value.inviteCode = ''
+    joinForm.value.description = ''
+    joinModalVisible.value = false
+    showToast('入组申请已提交，等待组长处理')
+  } catch (error) {
+    joinError.value = error instanceof Error ? error.message : '加入申请提交失败，请稍后重试'
+  } finally {
+    joinLoading.value = false
   }
 }
 
@@ -265,6 +354,18 @@ const recentDocs = [
   { title: '系统架构草图.pdf', updateTime: '今天 14:22 更新' },
   { title: '任务拆分清单.docx', updateTime: '昨天 19:40 更新' },
 ]
+
+onMounted(async () => {
+  window.addEventListener('click', handleClickOutside)
+  await loadPendingMessageCount()
+  if (activeMenu.value === 'teams') {
+    await loadMyTeams()
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleClickOutside)
+})
 </script>
 
 <template>
@@ -285,7 +386,7 @@ const recentDocs = [
           class="menu-item"
           :class="{ active: activeMenu === item.key }"
           type="button"
-          @click="activeMenu = item.key"
+          @click="handleMenuClick(item.key)"
         >
           <svg class="menu-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
             <path :d="item.icon" />
@@ -295,10 +396,10 @@ const recentDocs = [
       </nav>
 
       <div class="profile">
-        <img class="avatar" :src="currentAvatarSrc" :alt="`${currentUser.name}-avatar`" />
+        <img class="avatar" :src="currentAvatarSrc" :alt="`${currentUser?.name ?? 'user'}-avatar`" />
         <div class="profile-meta">
-          <div class="name">{{ currentUser.name }}</div>
-          <div class="email">{{ currentUser.email }}</div>
+          <div class="name">{{ currentUser?.name ?? '' }}</div>
+          <div class="email">{{ currentUser?.email ?? '' }}</div>
         </div>
       </div>
     </aside>
@@ -310,7 +411,7 @@ const recentDocs = [
             <i class="fa-solid fa-plus" aria-hidden="true"></i>
             <span>创建小组</span>
           </button>
-          <button class="group-btn join-btn" type="button">
+          <button class="group-btn join-btn" type="button" @click="openJoinModal">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M10 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
               <path d="M14 8l4 4-4 4" />
@@ -322,19 +423,23 @@ const recentDocs = [
         <div class="search-wrap">
           <input type="text" placeholder="搜索小组、文档或任务..." />
         </div>
-        <div class="top-actions">
-          <button type="button" aria-label="消息">
+        <div ref="settingsMenuRef" class="top-actions">
+          <button class="top-icon-btn" type="button" aria-label="消息" @click="goMessageCenter">
             <svg viewBox="0 0 24 24" fill="none">
               <path d="M18 8a6 6 0 1 0-12 0v5l-2 3h16l-2-3V8Zm-7 11h2" />
             </svg>
+            <span v-if="pendingMessageCount > 0" class="message-badge">{{ pendingMessageBadgeText }}</span>
           </button>
-          <button type="button" aria-label="设置">
+          <button class="top-icon-btn" type="button" aria-label="设置" @click.stop="toggleSettingsMenu">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="6" cy="12" r="1.8" fill="currentColor" />
               <circle cx="12" cy="12" r="1.8" fill="currentColor" />
               <circle cx="18" cy="12" r="1.8" fill="currentColor" />
             </svg>
           </button>
+          <div v-if="settingsMenuVisible" class="settings-menu">
+            <button class="settings-item danger" type="button" @click="handleLogout">退出登录</button>
+          </div>
         </div>
       </header>
 
@@ -344,7 +449,11 @@ const recentDocs = [
           <p>你已加入 {{ joinedGroups.length }} 个小组，累计协作成员 {{ totalMembers }} 人次。</p>
         </section>
 
-        <section class="teams-grid">
+        <section v-if="teamsLoading" class="teams-feedback">正在加载我的小组...</section>
+        <section v-else-if="teamsError" class="teams-feedback error">{{ teamsError }}</section>
+        <section v-else-if="joinedGroups.length === 0" class="teams-feedback">你还没有加入任何小组，先创建一个吧。</section>
+
+        <section v-else class="teams-grid">
           <article v-for="group in joinedGroups" :key="group.id" class="team-card clickable" @click="goTeamDetail(group.id)">
             <div class="team-header">
               <h3>{{ group.name }}</h3>
@@ -353,12 +462,13 @@ const recentDocs = [
             <p class="team-desc">{{ group.description }}</p>
             <div class="team-meta">
               <span>创建时间：{{ group.createdAt }}</span>
-              <span>小组成员：{{ group.members.length }} 人</span>
+              <span>小组成员：{{ group.memberCount }} 人</span>
             </div>
             <div class="members">
-              <span v-for="member in group.members" :key="member.id" class="member-pill">
-                {{ member.name }} · {{ member.role }}
+              <span v-for="member in displayMembers(group.members).head" :key="member.userId" class="member-pill">
+                {{ member.roleName }} · {{ member.username }}
               </span>
+              <span v-if="displayMembers(group.members).hasMore" class="member-pill">...</span>
             </div>
           </article>
         </section>
@@ -366,7 +476,7 @@ const recentDocs = [
 
       <template v-else>
         <section class="greeting">
-          <h2>下午好，{{ currentUser.name }} 👋</h2>
+          <h2>下午好，{{ currentUser?.name ?? '' }} 👋</h2>
           <p>今天有 3 个任务即将到达 Deadline，AI 导师已为你生成了最新的复习导图。</p>
         </section>
 
@@ -438,6 +548,47 @@ const recentDocs = [
         </div>
       </section>
     </div>
+
+    <div v-if="joinModalVisible" class="modal-mask" @click="closeJoinModal">
+      <section class="create-modal join-modal" @click.stop>
+        <h3>加入小组</h3>
+        <p class="modal-sub">输入邀请码并附上备注，组长确认后你就能加入协作啦。</p>
+
+        <label class="field-label" for="join-invite-code">邀请码</label>
+        <input
+          id="join-invite-code"
+          v-model="joinForm.inviteCode"
+          class="modal-input"
+          type="text"
+          maxlength="20"
+          placeholder="请输入小组邀请码"
+        />
+
+        <label class="field-label" for="join-desc">申请备注</label>
+        <textarea
+          id="join-desc"
+          v-model="joinForm.description"
+          class="modal-textarea"
+          maxlength="500"
+          placeholder="例如：我是后端方向同学，想参与接口与数据库协作"
+        ></textarea>
+
+        <p v-if="joinError" class="modal-error">{{ joinError }}</p>
+        <p v-if="joinSuccess" class="modal-success">{{ joinSuccess }}</p>
+
+        <div class="modal-actions">
+          <button class="modal-btn cancel" type="button" :disabled="joinLoading" @click="closeJoinModal">取消</button>
+          <button class="modal-btn confirm" type="button" :disabled="joinLoading" @click="submitJoinTeam">
+            {{ joinLoading ? '提交中...' : '提交申请' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <transition name="toast-fade">
+      <div v-if="toastVisible" class="toast-tip">{{ toastMessage }}</div>
+    </transition>
+
   </div>
 </template>
 
@@ -642,13 +793,14 @@ const recentDocs = [
 }
 
 .top-actions {
+  position: relative;
   display: flex;
   gap: 10px;
   margin-left: auto;
   flex-shrink: 0;
 }
 
-.top-actions button {
+.top-actions > .top-icon-btn {
   border: 1px solid #bedeea;
   border-radius: 12px;
   background: #fff;
@@ -660,9 +812,10 @@ const recentDocs = [
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
 }
 
-.top-actions button:hover {
+.top-actions > .top-icon-btn:hover {
   background: #e9f8fc;
 }
 
@@ -673,6 +826,63 @@ const recentDocs = [
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.message-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid #ffffff;
+  background: linear-gradient(135deg, #f97316 0%, #ef4444 100%);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  padding: 0 4px;
+  box-shadow: 0 6px 12px rgba(239, 68, 68, 0.28);
+}
+
+.settings-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 198px;
+  border: 1px solid #cde8ea;
+  border-radius: 16px;
+  background: linear-gradient(160deg, #ffffff 0%, #f4fcfd 100%);
+  box-shadow: 0 18px 34px rgba(44, 106, 112, 0.18);
+  padding: 10px;
+  z-index: 40;
+}
+
+.settings-item {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid #39b5c5;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  white-space: nowrap;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.settings-item:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+  box-shadow: 0 10px 16px rgba(67, 152, 165, 0.24);
+}
+
+.settings-item.danger {
+  border-color: #39b5c5;
+  color: #ffffff;
 }
 
 .greeting {
@@ -722,6 +932,22 @@ const recentDocs = [
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.teams-feedback {
+  margin-top: 18px;
+  border: 1px solid #d3e9ec;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.95);
+  padding: 16px;
+  color: #376a6f;
+  font-size: 14px;
+}
+
+.teams-feedback.error {
+  border-color: #f3d0c7;
+  color: #b45309;
+  background: #fffaf7;
 }
 
 .team-card {
@@ -924,6 +1150,12 @@ const recentDocs = [
   font-size: 13px;
 }
 
+.modal-success {
+  margin: 10px 0 0;
+  color: #0f766e;
+  font-size: 13px;
+}
+
 .modal-actions {
   margin-top: 16px;
   display: flex;
@@ -956,6 +1188,34 @@ const recentDocs = [
   opacity: 0.65;
   cursor: not-allowed;
 }
+
+.toast-tip {
+  position: fixed;
+  top: 22px;
+  right: 22px;
+  z-index: 1500;
+  max-width: min(360px, calc(100vw - 32px));
+  border: 1px solid #9ed9e2;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #edfafd 0%, #f4fbf8 100%);
+  color: #1f6169;
+  box-shadow: 0 12px 24px rgba(52, 130, 142, 0.2);
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.2s ease;
+}
+
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
 @media (max-width: 980px) {
   .dashboard-page {
     flex-direction: column;
@@ -1003,6 +1263,7 @@ const recentDocs = [
   }
 }
 </style>
+
 
 
 
