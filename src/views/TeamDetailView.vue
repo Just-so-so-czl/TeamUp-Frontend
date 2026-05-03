@@ -17,7 +17,10 @@ import {
   createTask,
   createTeamTaskList,
   deleteTeamTaskList,
+  deleteTeamDocument,
   fetchTeamDetail,
+  fetchTeamDocumentDownloadUrl,
+  fetchTeamDocuments,
   fetchTeamMembersManage,
   fetchTeamTaskLists,
   rejectTeamJoinRequest,
@@ -25,9 +28,12 @@ import {
   removeTeamMember,
   updateTeamInfo,
   updateSelfRoleDesc,
+  updateTeamDocumentTitle,
   updateTeamTaskList,
   updateTeamMemberRole,
+  uploadTeamDocument,
   type TeamMemberManageItem,
+  type TeamDocumentItem,
   type TeamTaskListItem,
   type TeamPendingJoinRequestItem,
 } from '@/api/auth'
@@ -147,6 +153,33 @@ const taskListEditForm = ref({
 const taskListDeleteVisible = ref(false)
 const taskListDeleteLoading = ref(false)
 const pendingDeleteTaskList = ref<{ taskListId: string; title: string } | null>(null)
+const resourceDocs = ref<TeamDocumentItem[]>([])
+const agentDocs = ref<TeamDocumentItem[]>([])
+const resourceDocsLoading = ref(false)
+const resourceDocsError = ref('')
+const agentDocsLoading = ref(false)
+const agentDocsError = ref('')
+const canUploadResourceDoc = ref(false)
+const canUploadAgentDoc = ref(false)
+const docUploadVisible = ref(false)
+const docUploadLoading = ref(false)
+const docUploadError = ref('')
+const docUploadForm = ref({
+  type: 1,
+  title: '',
+  file: null as File | null,
+})
+const docEditVisible = ref(false)
+const docEditLoading = ref(false)
+const docEditError = ref('')
+const docEditForm = ref({
+  documentId: '',
+  title: '',
+  type: 1,
+})
+const docDeleteVisible = ref(false)
+const docDeleteLoading = ref(false)
+const pendingDeleteDoc = ref<{ documentId: string; title: string; type: number } | null>(null)
 
 const teamInfo = ref({
   name: '我的学习小组',
@@ -353,10 +386,235 @@ const loadTaskLists = async () => {
   }
 }
 
+const loadResourceDocs = async () => {
+  if (!teamId.value) {
+    return
+  }
+  resourceDocsLoading.value = true
+  resourceDocsError.value = ''
+  try {
+    const res = await fetchTeamDocuments(teamId.value, 1)
+    resourceDocs.value = res.documents || []
+    canUploadResourceDoc.value = !!res.currentUserCanUpload
+  } catch (error) {
+    resourceDocsError.value = error instanceof Error ? error.message : '加载资料文档失败'
+  } finally {
+    resourceDocsLoading.value = false
+  }
+}
+
+const loadAgentDocs = async () => {
+  if (!teamId.value) {
+    return
+  }
+  agentDocsLoading.value = true
+  agentDocsError.value = ''
+  try {
+    const res = await fetchTeamDocuments(teamId.value, 3)
+    agentDocs.value = res.documents || []
+    canUploadAgentDoc.value = !!res.currentUserCanUpload
+  } catch (error) {
+    agentDocsError.value = error instanceof Error ? error.message : '加载Agent文档失败'
+  } finally {
+    agentDocsLoading.value = false
+  }
+}
+
 const handleTabClick = async (tabKey: TabKey) => {
   activeTab.value = tabKey
   if (tabKey === 'tasks') {
     await loadTaskLists()
+    return
+  }
+  if (tabKey === 'resourceDocs') {
+    await loadResourceDocs()
+    return
+  }
+  if (tabKey === 'mentor') {
+    await loadAgentDocs()
+  }
+}
+
+const formatFileSize = (size: number) => {
+  if (!size || size < 0) {
+    return '--'
+  }
+  if (size < 1024) {
+    return `${size}B`
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)}KB`
+  }
+  return `${(size / (1024 * 1024)).toFixed(1)}MB`
+}
+
+const downloadDocument = async (doc: TeamDocumentItem) => {
+  const documentId = (doc.documentId || '').trim()
+  if (!documentId) {
+    return
+  }
+  try {
+    const url = await fetchTeamDocumentDownloadUrl(documentId)
+    if (!url) {
+      return
+    }
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.target = '_blank'
+    anchor.rel = 'noopener noreferrer'
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : '获取下载链接失败'
+    if (doc.type === 1) {
+      resourceDocsError.value = msg
+    } else {
+      agentDocsError.value = msg
+    }
+  }
+}
+
+const openDocUploadModal = (type: 1 | 3) => {
+  docUploadForm.value = {
+    type,
+    title: '',
+    file: null,
+  }
+  docUploadError.value = ''
+  docUploadVisible.value = true
+}
+
+const closeDocUploadModal = () => {
+  if (docUploadLoading.value) {
+    return
+  }
+  docUploadVisible.value = false
+}
+
+const handleDocFileChange = (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  docUploadForm.value.file = file || null
+}
+
+const submitDocUpload = async () => {
+  if (!teamId.value) {
+    return
+  }
+  const title = docUploadForm.value.title.trim()
+  const file = docUploadForm.value.file
+  if (!title || title.length > 200) {
+    docUploadError.value = '文档标题不能为空且不能超过200字符'
+    return
+  }
+  if (!file) {
+    docUploadError.value = '请选择要上传的文件'
+    return
+  }
+  docUploadLoading.value = true
+  docUploadError.value = ''
+  try {
+    await uploadTeamDocument(teamId.value, title, docUploadForm.value.type, file)
+    docUploadVisible.value = false
+    if (docUploadForm.value.type === 1) {
+      await loadResourceDocs()
+    } else {
+      await loadAgentDocs()
+    }
+  } catch (error) {
+    docUploadError.value = error instanceof Error ? error.message : '上传文档失败'
+  } finally {
+    docUploadLoading.value = false
+  }
+}
+
+const openDocEditModal = (doc: TeamDocumentItem) => {
+  docEditForm.value = {
+    documentId: doc.documentId,
+    title: doc.title,
+    type: doc.type,
+  }
+  docEditError.value = ''
+  docEditVisible.value = true
+}
+
+const closeDocEditModal = () => {
+  if (docEditLoading.value) {
+    return
+  }
+  docEditVisible.value = false
+}
+
+const submitDocEdit = async () => {
+  const documentId = docEditForm.value.documentId
+  const title = docEditForm.value.title.trim()
+  if (!documentId) {
+    return
+  }
+  if (!title || title.length > 200) {
+    docEditError.value = '文档标题不能为空且不能超过200字符'
+    return
+  }
+  docEditLoading.value = true
+  docEditError.value = ''
+  try {
+    await updateTeamDocumentTitle(documentId, title)
+    docEditVisible.value = false
+    if (docEditForm.value.type === 1) {
+      await loadResourceDocs()
+    } else {
+      await loadAgentDocs()
+    }
+  } catch (error) {
+    docEditError.value = error instanceof Error ? error.message : '修改文档失败'
+  } finally {
+    docEditLoading.value = false
+  }
+}
+
+const openDocDeleteModal = (doc: TeamDocumentItem) => {
+  pendingDeleteDoc.value = {
+    documentId: doc.documentId,
+    title: doc.title,
+    type: doc.type,
+  }
+  docDeleteVisible.value = true
+}
+
+const closeDocDeleteModal = () => {
+  if (docDeleteLoading.value) {
+    return
+  }
+  docDeleteVisible.value = false
+  pendingDeleteDoc.value = null
+}
+
+const confirmDocDelete = async () => {
+  const target = pendingDeleteDoc.value
+  if (!target?.documentId) {
+    closeDocDeleteModal()
+    return
+  }
+  docDeleteLoading.value = true
+  try {
+    await deleteTeamDocument(target.documentId)
+    docDeleteVisible.value = false
+    pendingDeleteDoc.value = null
+    if (target.type === 1) {
+      await loadResourceDocs()
+    } else {
+      await loadAgentDocs()
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : '删除文档失败'
+    if (target.type === 1) {
+      resourceDocsError.value = msg
+    } else {
+      agentDocsError.value = msg
+    }
+  } finally {
+    docDeleteLoading.value = false
   }
 }
 
@@ -868,6 +1126,10 @@ const confirmRemoveMember = async () => {
 }
 
 const goBack = async () => {
+  if (window.history.length > 1) {
+    router.back()
+    return
+  }
   await router.push('/dashboard')
 }
 
@@ -884,10 +1146,13 @@ const handleClickOutside = (event: MouseEvent) => {
 onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
   const tabFromQuery = route.query.tab
-  if (typeof tabFromQuery === 'string' && (tabFromQuery === 'members' || tabFromQuery === 'tasks')) {
+  if (
+    typeof tabFromQuery === 'string' &&
+    (tabFromQuery === 'members' || tabFromQuery === 'tasks' || tabFromQuery === 'collabDocs' || tabFromQuery === 'resourceDocs')
+  ) {
     activeTab.value = tabFromQuery
   }
-  await Promise.all([loadTeamDetail(), loadMembersManage(), loadTaskLists()])
+  await Promise.all([loadTeamDetail(), loadMembersManage(), loadTaskLists(), loadResourceDocs(), loadAgentDocs()])
 })
 
 onBeforeUnmount(() => {
@@ -899,7 +1164,7 @@ onBeforeUnmount(() => {
   <main class="team-page">
     <section class="team-hero">
       <div class="hero-actions">
-        <button class="back-btn" type="button" @click="goBack">返回我的小组</button>
+        <button class="back-btn" type="button" @click="goBack">返回</button>
       </div>
 
       <div class="hero-main split">
@@ -1161,9 +1426,74 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
+    <section v-else-if="activeTab === 'resourceDocs'" class="content-panel">
+      <div class="panel-head">
+        <div class="panel-title">资料文档</div>
+        <button
+          v-if="canUploadResourceDoc"
+          class="create-task-list-btn"
+          type="button"
+          @click="openDocUploadModal(1)"
+        >
+          上传资料文档
+        </button>
+      </div>
+      <p v-if="resourceDocsLoading" class="member-tip">正在加载资料文档...</p>
+      <p v-else-if="resourceDocsError" class="member-tip error">{{ resourceDocsError }}</p>
+      <p v-else-if="resourceDocs.length === 0" class="member-tip">当前暂无资料文档</p>
+      <ul v-else class="doc-list">
+        <li v-for="doc in resourceDocs" :key="doc.documentId" class="doc-item">
+          <div class="doc-main">
+            <a class="doc-title" :href="doc.storagePath" target="_blank" rel="noopener noreferrer">{{ doc.title }}</a>
+            <div class="doc-meta">
+              {{ doc.fileType.toUpperCase() }} · {{ formatFileSize(doc.fileSize) }} · 上传者：{{ doc.creatorName }} · {{ formatTime(doc.createTime) }}
+            </div>
+          </div>
+          <div class="doc-actions">
+            <button class="task-edit-btn doc-download-btn" type="button" @click="downloadDocument(doc)">↓</button>
+            <button class="task-edit-btn" type="button" @click="openDocEditModal(doc)">✍</button>
+            <button class="task-delete-btn" type="button" @click="openDocDeleteModal(doc)">−</button>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <section v-else-if="activeTab === 'mentor'" class="content-panel">
+      <div class="panel-head">
+        <div class="panel-title">智能导师知识库文档</div>
+        <button
+          v-if="canUploadAgentDoc"
+          class="create-task-list-btn"
+          type="button"
+          @click="openDocUploadModal(3)"
+        >
+          上传Agent文档
+        </button>
+      </div>
+      <p v-if="agentDocsLoading" class="member-tip">正在加载Agent文档...</p>
+      <p v-else-if="agentDocsError" class="member-tip error">{{ agentDocsError }}</p>
+      <p v-else-if="agentDocs.length === 0" class="member-tip">当前暂无Agent文档</p>
+      <ul v-else class="doc-list">
+        <li v-for="doc in agentDocs" :key="doc.documentId" class="doc-item">
+          <div class="doc-main">
+            <a class="doc-title" :href="doc.storagePath" target="_blank" rel="noopener noreferrer">{{ doc.title }}</a>
+            <div class="doc-meta">
+              {{ doc.fileType.toUpperCase() }} · {{ formatFileSize(doc.fileSize) }} · 上传者：{{ doc.creatorName }} · {{ formatTime(doc.createTime) }}
+            </div>
+          </div>
+          <div class="doc-actions">
+            <button class="task-edit-btn doc-download-btn" type="button" @click="downloadDocument(doc)">↓</button>
+            <button class="task-edit-btn" type="button" @click="openDocEditModal(doc)">✍</button>
+            <button class="task-delete-btn" type="button" @click="openDocDeleteModal(doc)">−</button>
+          </div>
+        </li>
+      </ul>
+      <p class="task-modal-tip">说明：Agent文档仅 Captain / Leader 可上传、修改、删除。</p>
+    </section>
+
     <section v-else class="content-panel placeholder">
       <div class="panel-title">{{ tabs.find((t) => t.key === activeTab)?.label }}</div>
-      <p>该模块 UI 下个阶段继续完善，当前先完成“任务列表”和“小组成员”详情。</p>
+      <p>协作文档模块下一阶段完善（计划接入 MongoDB）。</p>
     </section>
 
     <div v-if="inviteCardVisible" class="invite-modal-mask" @click="closeInviteCard">
@@ -1264,6 +1594,54 @@ onBeforeUnmount(() => {
           <button class="edit-cancel-btn" type="button" :disabled="taskCreateLoading" @click="closeTaskCreateModal">取消</button>
           <button class="edit-confirm-btn" type="button" :disabled="taskCreateLoading" @click="submitTaskCreate">
             {{ taskCreateLoading ? '创建中...' : '确认创建' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docUploadVisible" class="edit-team-mask" @click="closeDocUploadModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>{{ docUploadForm.type === 1 ? '上传资料文档' : '上传Agent文档' }}</h3>
+        <label class="edit-label" for="doc-upload-title">文档标题</label>
+        <input id="doc-upload-title" v-model="docUploadForm.title" class="edit-input" type="text" maxlength="200" placeholder="请输入文档标题" />
+
+        <label class="edit-label" for="doc-upload-file">选择文件</label>
+        <input id="doc-upload-file" class="edit-input" type="file" accept=".pdf,.docx,.md,.txt" @change="handleDocFileChange" />
+        <p class="task-modal-tip">仅支持 pdf / docx / md / txt</p>
+
+        <p v-if="docUploadError" class="edit-error">{{ docUploadError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="docUploadLoading" @click="closeDocUploadModal">取消</button>
+          <button class="edit-confirm-btn" type="button" :disabled="docUploadLoading" @click="submitDocUpload">
+            {{ docUploadLoading ? '上传中...' : '确认上传' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docEditVisible" class="edit-team-mask" @click="closeDocEditModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>修改文档标题</h3>
+        <label class="edit-label" for="doc-edit-title">文档标题</label>
+        <input id="doc-edit-title" v-model="docEditForm.title" class="edit-input" type="text" maxlength="200" placeholder="请输入文档标题" />
+        <p v-if="docEditError" class="edit-error">{{ docEditError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="docEditLoading" @click="closeDocEditModal">取消</button>
+          <button class="edit-confirm-btn" type="button" :disabled="docEditLoading" @click="submitDocEdit">
+            {{ docEditLoading ? '保存中...' : '保存修改' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docDeleteVisible" class="remove-member-mask" @click="closeDocDeleteModal">
+      <section class="remove-member-modal" @click.stop>
+        <h3>删除文档</h3>
+        <p>确定删除文档 <span class="target-name">{{ pendingDeleteDoc?.title || '该文档' }}</span> 吗？</p>
+        <div class="remove-member-actions">
+          <button class="remove-cancel-btn" type="button" :disabled="docDeleteLoading" @click="closeDocDeleteModal">取消</button>
+          <button class="remove-confirm-btn" type="button" :disabled="docDeleteLoading" @click="confirmDocDelete">
+            {{ docDeleteLoading ? '删除中...' : '确认删除' }}
           </button>
         </div>
       </section>
@@ -1739,6 +2117,25 @@ onBeforeUnmount(() => {
 .edit-confirm-btn { background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%); color: #fff; }
 .edit-cancel-btn:disabled, .edit-confirm-btn:disabled { opacity: 0.65; cursor: not-allowed; }
 .placeholder p { margin: 0; color: #588284; }
+.doc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.doc-item {
+  border: 1px solid #dff0ef;
+  background: #f4fcfb;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.doc-main { min-width: 0; }
+.doc-title { color: #1f666f; font-size: 14px; font-weight: 700; text-decoration: none; }
+.doc-title:hover { text-decoration: underline; }
+.doc-meta { margin-top: 5px; color: #5f858a; font-size: 12px; }
+.doc-actions { display: flex; align-items: center; gap: 8px; }
+.doc-download-btn {
+  font-size: 14px;
+}
 
 @media (max-width: 980px) {
   .team-page { padding: 16px; }

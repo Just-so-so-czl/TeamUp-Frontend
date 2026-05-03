@@ -10,7 +10,7 @@ import avatar6 from '@/assets/avatar/a6.png'
 import avatar7 from '@/assets/avatar/a7.png'
 import avatar8 from '@/assets/avatar/a8.png'
 import { clearAuthStorage, getStoredLoginUser } from '@/utils/authUser'
-import { createTeam, fetchMyTeams, fetchMyMessages, submitJoinRequest, type MyTeam } from '@/api/auth'
+import { createTeam, fetchMyTeams, fetchMyMessages, fetchTeamDocuments, fetchTeamTaskLists, submitJoinRequest, type MyTeam } from '@/api/auth'
 
 interface MenuItem {
   key: string
@@ -72,11 +72,7 @@ const menuItems: MenuItem[] = [
     label: '智能导师',
     icon: 'M12 3 2 8l10 5 10-5-10-5Zm-7 8v5c0 2.8 3.1 5 7 5s7-2.2 7-5v-5',
   },
-  {
-    key: 'tasks',
-    label: '任务调度',
-    icon: 'M7 2v3M17 2v3M4 7h16M6 5h12a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Zm2 7h4v4H8z',
-  },
+  
 ]
 
 const activeMenu = ref('teams')
@@ -87,6 +83,11 @@ const teamsLoading = ref(false)
 const teamsError = ref('')
 const joinedGroups = ref<JoinedGroup[]>([])
 const pendingMessageCount = ref(0)
+const workspaceLoading = ref(false)
+const workspaceError = ref('')
+const activeGroupItems = ref<Array<{ id: string; name: string; role: string; progressText: string }>>([])
+const pendingTaskItems = ref<Array<{ id: string; teamId: string; title: string; due: string; groupName: string }>>([])
+const recentDocItems = ref<Array<{ id: string; teamId: string; title: string; updateTime: string; groupName: string; docType: 'resource' | 'collab' }>>([])
 
 const formatTime = (value: string) => {
   if (!value) {
@@ -152,6 +153,8 @@ const displayMembers = (members: GroupMember[]) => {
 }
 
 const totalMembers = computed(() => joinedGroups.value.reduce((sum, group) => sum + group.memberCount, 0))
+const pendingTaskCount = computed(() => pendingTaskItems.value.length)
+const recentDocCount = computed(() => recentDocItems.value.length)
 
 const createModalVisible = ref(false)
 const createLoading = ref(false)
@@ -337,30 +340,106 @@ const goTeamDetail = async (teamId: number | string) => {
   await router.push('/teams/' + teamId)
 }
 
-const activeGroups = [
-  { name: '软件工程课程设计组', role: '组长', progress: '进度 78%' },
-  { name: '计算机网络冲刺组', role: '开发者', progress: '进度 62%' },
-  { name: '算法竞赛训练营', role: '文案', progress: '进度 49%' },
-]
+const goTeamDetailById = async (teamId: string) => {
+  if (!teamId) {
+    return
+  }
+  await router.push('/teams/' + teamId)
+}
 
-const pendingTasks = [
-  { title: '整理数据库 ER 图', due: '截止今晚 21:00', priority: '高优先级' },
-  { title: '补充接口联调文档', due: '截止明天 10:30', priority: '中优先级' },
-  { title: '复盘上周冲刺会议', due: '截止明天 18:00', priority: '低优先级' },
-]
+const goDocTarget = async (doc: { teamId: string; docType: 'resource' | 'collab' }) => {
+  if (!doc.teamId) {
+    return
+  }
+  const tab = doc.docType === 'collab' ? 'collabDocs' : 'resourceDocs'
+  await router.push({ path: '/teams/' + doc.teamId, query: { tab } })
+}
 
-const recentDocs = [
-  { title: '需求评审纪要.md', updateTime: '20 分钟前更新' },
-  { title: '系统架构草图.pdf', updateTime: '今天 14:22 更新' },
-  { title: '任务拆分清单.docx', updateTime: '昨天 19:40 更新' },
-]
+const loadWorkspaceData = async () => {
+  workspaceLoading.value = true
+  workspaceError.value = ''
+  try {
+    const teamRes = await fetchMyTeams()
+    const teams = teamRes.teams || []
+    joinedGroups.value = teams.map(mapTeam)
+    activeGroupItems.value = teams.map((item) => ({
+      id: item.teamId,
+      name: item.teamName,
+      role: item.userRoleName,
+      progressText: `成员 ${item.memberCount} 人`,
+    }))
+
+    const currentUserId = currentUser.value?.id
+    const teamTaskListRes = await Promise.all(teams.map((team) => fetchTeamTaskLists(team.teamId)))
+    const allPendingTasks: Array<{ id: string; teamId: string; title: string; due: string; groupName: string; dueRaw: string }> = []
+    teamTaskListRes.forEach((res, index) => {
+      const teamId = teams[index]?.teamId || ''
+      const groupName = teams[index]?.teamName || '我的小组'
+      for (const list of res.taskLists || []) {
+        for (const task of list.tasks || []) {
+          if (task.status === 1) {
+            continue
+          }
+          const assignedToMe = !!currentUserId && (task.assignees || []).some((a) => a.userId === currentUserId)
+          if (!assignedToMe) {
+            continue
+          }
+          allPendingTasks.push({
+            id: task.taskId,
+            teamId,
+            title: task.description,
+            due: formatTime(task.deadline),
+            dueRaw: task.deadline || '',
+            groupName,
+          })
+        }
+      }
+    })
+    allPendingTasks.sort((a, b) => (a.dueRaw || '').localeCompare(b.dueRaw || ''))
+    pendingTaskItems.value = allPendingTasks.slice(0, 8).map((item) => ({
+      id: item.id,
+      teamId: item.teamId,
+      title: item.title,
+      due: item.due,
+      groupName: item.groupName,
+    }))
+
+    const docsRes = await Promise.all(teams.map((team) => fetchTeamDocuments(team.teamId, 1)))
+    const allDocs: Array<{ id: string; teamId: string; title: string; updateTime: string; createRaw: string; groupName: string; docType: 'resource' | 'collab' }> = []
+    docsRes.forEach((res) => {
+      for (const doc of res.documents || []) {
+        const groupName = joinedGroups.value.find((g) => g.id === doc.teamId)?.name || '我的小组'
+        allDocs.push({
+          id: doc.documentId,
+          teamId: doc.teamId,
+          title: doc.title,
+          updateTime: formatTime(doc.createTime),
+          createRaw: doc.createTime || '',
+          groupName,
+          docType: 'resource',
+        })
+      }
+    })
+    allDocs.sort((a, b) => (b.createRaw || '').localeCompare(a.createRaw || ''))
+    recentDocItems.value = allDocs.slice(0, 8).map((item) => ({
+      id: item.id,
+      teamId: item.teamId,
+      title: item.title,
+      updateTime: item.updateTime,
+      groupName: item.groupName,
+      docType: item.docType,
+    }))
+  } catch (error) {
+    workspaceError.value = error instanceof Error ? error.message : '加载工作台数据失败'
+  } finally {
+    workspaceLoading.value = false
+  }
+}
 
 onMounted(async () => {
   window.addEventListener('click', handleClickOutside)
   await loadPendingMessageCount()
-  if (activeMenu.value === 'teams') {
-    await loadMyTeams()
-  }
+  await loadWorkspaceData()
 })
 
 onBeforeUnmount(() => {
@@ -477,38 +556,44 @@ onBeforeUnmount(() => {
       <template v-else>
         <section class="greeting">
           <h2>下午好，{{ currentUser?.name ?? '' }} 👋</h2>
-          <p>今天有 3 个任务即将到达 Deadline，AI 导师已为你生成了最新的复习导图。</p>
+          <p v-if="workspaceLoading">正在为你同步最新协作数据...</p>
+          <p v-else>你当前有 {{ pendingTaskCount }} 个待处理任务，最近更新了 {{ recentDocCount }} 份文档。</p>
         </section>
+
+        <section v-if="workspaceError" class="teams-feedback error">{{ workspaceError }}</section>
 
         <section class="main-grid">
           <article class="card">
             <div class="card-title">正在进行的小组</div>
-            <ul>
-              <li v-for="group in activeGroups" :key="group.name">
+            <ul v-if="activeGroupItems.length > 0">
+              <li v-for="group in activeGroupItems" :key="group.id" class="jump-item" @click="goTeamDetailById(group.id)">
                 <span class="item-name">{{ group.name }}</span>
-                <span class="item-sub">{{ group.role }} · {{ group.progress }}</span>
+                <span class="item-sub">{{ group.role }} · {{ group.progressText }}</span>
               </li>
             </ul>
+            <p v-else class="card-empty-tip">暂无进行中的小组</p>
           </article>
 
           <article class="card">
             <div class="card-title">待处理的任务</div>
-            <ul>
-              <li v-for="task in pendingTasks" :key="task.title">
+            <ul v-if="pendingTaskItems.length > 0">
+              <li v-for="task in pendingTaskItems" :key="task.id" class="jump-item" @click="goTeamDetailById(task.teamId)">
                 <span class="item-name">{{ task.title }}</span>
-                <span class="item-sub">{{ task.due }} · {{ task.priority }}</span>
+                <span class="item-sub">{{ task.groupName }} · 截止 {{ task.due }}</span>
               </li>
             </ul>
+            <p v-else class="card-empty-tip">当前没有分配给你的待办任务</p>
           </article>
 
           <article class="card docs-card">
             <div class="card-title">近期文档</div>
-            <ul>
-              <li v-for="doc in recentDocs" :key="doc.title">
+            <ul v-if="recentDocItems.length > 0">
+              <li v-for="doc in recentDocItems" :key="doc.id" class="jump-item" @click="goDocTarget(doc)">
                 <span class="item-name">{{ doc.title }}</span>
-                <span class="item-sub">{{ doc.updateTime }}</span>
+                <span class="item-sub">{{ doc.groupName }} · {{ doc.updateTime }}</span>
               </li>
             </ul>
+            <p v-else class="card-empty-tip">近期暂无文档更新</p>
           </article>
         </section>
       </template>
@@ -1067,6 +1152,15 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 2px;
 }
+.jump-item {
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+.jump-item:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 14px rgba(98, 170, 181, 0.16);
+  background: #ebf8f8;
+}
 
 .item-name {
   font-size: 14px;
@@ -1077,6 +1171,11 @@ onBeforeUnmount(() => {
 .item-sub {
   font-size: 12px;
   color: #53817f;
+}
+.card-empty-tip {
+  margin: 0;
+  color: #5a8688;
+  font-size: 13px;
 }
 
 
@@ -1263,11 +1362,6 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-
-
-
-
 
 
 

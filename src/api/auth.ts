@@ -128,6 +128,25 @@ export interface TeamTaskListResponse {
   taskLists: TeamTaskListItem[]
 }
 
+export interface TeamDocumentItem {
+  documentId: string
+  teamId: string
+  title: string
+  type: number
+  typeName: string
+  storagePath: string
+  fileType: string
+  fileSize: number
+  creatorId: string
+  creatorName: string
+  createTime: string
+}
+
+export interface TeamDocumentListResponse {
+  currentUserCanUpload: boolean
+  documents: TeamDocumentItem[]
+}
+
 export interface MyTeam {
   teamId: string
   teamName: string
@@ -288,4 +307,44 @@ export async function assignTask(taskId: string, assigneeUserId: string): Promis
 
 export async function removeTaskAssignee(taskId: string, assigneeUserId: string): Promise<void> {
   await request<null>('/task-assignment/remove-assignee', { taskId, assigneeUserId }, true)
+}
+
+export async function fetchTeamDocuments(teamId: string, type: number): Promise<TeamDocumentListResponse> {
+  const result = await request<TeamDocumentListResponse>('/document/list', { teamId, type }, true)
+  return result.data
+}
+
+export async function uploadTeamDocument(teamId: string, title: string, type: number, file: File): Promise<void> {
+  const token = sessionStorage.getItem('teamup_token')
+  const formData = new FormData()
+  formData.append('teamId', teamId)
+  formData.append('title', title)
+  formData.append('type', String(type))
+  formData.append('file', file)
+  const headers: Record<string, string> = {}
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  const response = await fetch(`${API_BASE}/document/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  const result = (await response.json()) as Result<null>
+  if (!response.ok || result.code !== 200) {
+    throw new ApiError(result.message || '上传失败', result.code ?? response.status, result.errorType)
+  }
+}
+
+export async function updateTeamDocumentTitle(documentId: string, title: string): Promise<void> {
+  await request<null>('/document/update', { documentId, title }, true)
+}
+
+export async function deleteTeamDocument(documentId: string): Promise<void> {
+  await request<null>('/document/delete', { documentId }, true)
+}
+
+export async function fetchTeamDocumentDownloadUrl(documentId: string): Promise<string> {
+  const result = await request<string>('/document/download-url', { documentId }, true)
+  return result.data
 }
