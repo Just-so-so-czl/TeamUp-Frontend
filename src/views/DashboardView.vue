@@ -9,8 +9,8 @@ import avatar5 from '@/assets/avatar/a5.png'
 import avatar6 from '@/assets/avatar/a6.png'
 import avatar7 from '@/assets/avatar/a7.png'
 import avatar8 from '@/assets/avatar/a8.png'
-import { clearAuthStorage, getStoredLoginUser } from '@/utils/authUser'
-import { createTeam, fetchMyTeams, fetchMyMessages, fetchTeamDocuments, fetchTeamTaskLists, submitJoinRequest, type MyTeam } from '@/api/auth'
+import { clearAuthStorage, getStoredLoginUser, saveStoredLoginUser } from '@/utils/authUser'
+import { createTeam, fetchMyTeams, fetchMyMessages, fetchTeamDocuments, fetchTeamTaskLists, submitJoinRequest, updateUserProfile, type MyTeam } from '@/api/auth'
 
 interface MenuItem {
   key: string
@@ -45,9 +45,7 @@ const avatarMap: Record<number, string> = {
   8: avatar8,
 }
 
-const currentUser = computed(() => {
-  return getStoredLoginUser()
-})
+const currentUser = ref(getStoredLoginUser())
 
 const currentAvatarSrc = computed(() => avatarMap[currentUser.value?.avatar ?? 1] ?? avatar1)
 
@@ -174,6 +172,14 @@ const joinForm = ref({
   inviteCode: '',
   description: '',
 })
+const profileModalVisible = ref(false)
+const profileSaving = ref(false)
+const profileError = ref('')
+const profileForm = ref({
+  username: '',
+  email: '',
+  avatar: 1,
+})
 
 const resetCreateForm = () => {
   createForm.value = {
@@ -238,6 +244,66 @@ const pendingMessageBadgeText = computed(() => {
 
 const toggleSettingsMenu = () => {
   settingsMenuVisible.value = !settingsMenuVisible.value
+}
+
+const openProfileModal = () => {
+  profileForm.value = {
+    username: currentUser.value?.name || '',
+    email: currentUser.value?.email || '',
+    avatar: currentUser.value?.avatar || 1,
+  }
+  profileError.value = ''
+  profileModalVisible.value = true
+  settingsMenuVisible.value = false
+}
+
+const closeProfileModal = () => {
+  if (profileSaving.value) {
+    return
+  }
+  profileModalVisible.value = false
+}
+
+const submitProfileUpdate = async () => {
+  const username = profileForm.value.username.trim()
+  const email = profileForm.value.email.trim()
+  const avatar = profileForm.value.avatar
+  if (username.length < 2 || username.length > 20) {
+    profileError.value = '用户名长度需在2到20个字符之间'
+    return
+  }
+  if (!/^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$/.test(email)) {
+    profileError.value = '请输入合法邮箱'
+    return
+  }
+  if (avatar < 1 || avatar > 8) {
+    profileError.value = '头像参数不合法'
+    return
+  }
+  profileSaving.value = true
+  profileError.value = ''
+  try {
+    const user = await updateUserProfile(email, username, avatar)
+    const latestUser = {
+      id: user.id,
+      name: user.username,
+      email: user.email,
+      avatar: user.avatar,
+    }
+    saveStoredLoginUser({
+      id: latestUser.id,
+      name: latestUser.name,
+      email: latestUser.email,
+      avatar: latestUser.avatar,
+    })
+    currentUser.value = latestUser
+    profileModalVisible.value = false
+    showToast('账户信息已更新')
+  } catch (error) {
+    profileError.value = error instanceof Error ? error.message : '更新账户信息失败'
+  } finally {
+    profileSaving.value = false
+  }
 }
 
 const handleLogout = async () => {
@@ -517,6 +583,7 @@ onBeforeUnmount(() => {
             </svg>
           </button>
           <div v-if="settingsMenuVisible" class="settings-menu">
+            <button class="settings-item" type="button" @click="openProfileModal">修改账户</button>
             <button class="settings-item danger" type="button" @click="handleLogout">退出登录</button>
           </div>
         </div>
@@ -665,6 +732,42 @@ onBeforeUnmount(() => {
           <button class="modal-btn cancel" type="button" :disabled="joinLoading" @click="closeJoinModal">取消</button>
           <button class="modal-btn confirm" type="button" :disabled="joinLoading" @click="submitJoinTeam">
             {{ joinLoading ? '提交中...' : '提交申请' }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="profileModalVisible" class="modal-mask" @click="closeProfileModal">
+      <section class="create-modal join-modal" @click.stop>
+        <h3>修改账户</h3>
+        <p class="modal-sub">你可以在这里更新名称、头像和邮箱。</p>
+
+        <label class="field-label" for="profile-username">名称</label>
+        <input id="profile-username" v-model="profileForm.username" class="modal-input" type="text" maxlength="20" placeholder="请输入名称" />
+
+        <label class="field-label" for="profile-email">邮箱</label>
+        <input id="profile-email" v-model="profileForm.email" class="modal-input" type="email" maxlength="80" placeholder="请输入邮箱" />
+
+        <label class="field-label">头像</label>
+        <div class="avatar-pick-grid">
+          <button
+            v-for="idx in [1, 2, 3, 4, 5, 6, 7, 8]"
+            :key="idx"
+            class="avatar-pick-item"
+            :class="{ active: profileForm.avatar === idx }"
+            type="button"
+            @click="profileForm.avatar = idx"
+          >
+            <img :src="avatarMap[idx]" :alt="'avatar-' + idx" />
+          </button>
+        </div>
+
+        <p v-if="profileError" class="modal-error">{{ profileError }}</p>
+
+        <div class="modal-actions">
+          <button class="modal-btn cancel" type="button" :disabled="profileSaving" @click="closeProfileModal">取消</button>
+          <button class="modal-btn confirm" type="button" :disabled="profileSaving" @click="submitProfileUpdate">
+            {{ profileSaving ? '保存中...' : '保存修改' }}
           </button>
         </div>
       </section>
@@ -942,6 +1045,9 @@ onBeforeUnmount(() => {
   box-shadow: 0 18px 34px rgba(44, 106, 112, 0.18);
   padding: 10px;
   z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .settings-item {
@@ -968,6 +1074,29 @@ onBeforeUnmount(() => {
 .settings-item.danger {
   border-color: #39b5c5;
   color: #ffffff;
+}
+.avatar-pick-grid {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.avatar-pick-item {
+  border: 1px solid #c9e2e7;
+  border-radius: 12px;
+  background: #f9fdfd;
+  padding: 6px;
+  cursor: pointer;
+}
+.avatar-pick-item img {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 8px;
+  object-fit: cover;
+}
+.avatar-pick-item.active {
+  border-color: #4dbed1;
+  box-shadow: 0 0 0 3px rgba(77, 190, 209, 0.2);
 }
 
 .greeting {
@@ -1362,9 +1491,6 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-
-
 
 
 

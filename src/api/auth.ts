@@ -238,6 +238,11 @@ export async function fetchCurrentUser(): Promise<UserSimple> {
   return result.data
 }
 
+export async function updateUserProfile(email: string, username: string, avatar: number): Promise<UserSimple> {
+  const result = await request<UserSimple>('/user/update-profile', { email, username, avatar }, true)
+  return result.data
+}
+
 export async function fetchMyMessages(): Promise<TeamMessageListResponse> {
   const result = await request<TeamMessageListResponse>('/team-message/my-list', {}, true)
   return result.data

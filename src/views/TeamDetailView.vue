@@ -1126,11 +1126,15 @@ const confirmRemoveMember = async () => {
 }
 
 const goBack = async () => {
-  if (window.history.length > 1) {
-    router.back()
-    return
+  try {
+    if (window.history.length > 1) {
+      await router.back()
+    } else {
+      await router.push('/dashboard')
+    }
+  } catch {
+    await router.push('/dashboard')
   }
-  await router.push('/dashboard')
 }
 
 const handleClickOutside = (event: MouseEvent) => {
@@ -1318,7 +1322,7 @@ onBeforeUnmount(() => {
                     <button
                       class="task-item-btn claim"
                       type="button"
-                      :disabled="taskActionLoadingKey === `claim-${taskItem.taskId}` || hasCurrentUserClaimed(taskItem)"
+                      :disabled="taskItem.status === 1 || taskActionLoadingKey === `claim-${taskItem.taskId}` || hasCurrentUserClaimed(taskItem)"
                       @click="handleClaimTask(taskItem.taskId)"
                     >
                       {{
@@ -1331,6 +1335,7 @@ onBeforeUnmount(() => {
                       v-if="canManageTaskAssignee"
                       class="task-item-btn assign"
                       type="button"
+                      :disabled="taskItem.status === 1 || taskAssignLoading"
                       @click="openTaskAssignModal(taskItem.taskId, taskItem.description, taskItem.assignees || [])"
                     >
                       人员分配
