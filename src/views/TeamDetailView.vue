@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import avatar1 from '@/assets/avatar/a1.png'
@@ -421,6 +421,10 @@ const loadAgentDocs = async () => {
 }
 
 const handleTabClick = async (tabKey: TabKey) => {
+  if (tabKey === 'mentor') {
+    await router.push(`/teams/${teamId.value}/mentor`)
+    return
+  }
   activeTab.value = tabKey
   if (tabKey === 'tasks') {
     await loadTaskLists()
@@ -429,9 +433,6 @@ const handleTabClick = async (tabKey: TabKey) => {
   if (tabKey === 'resourceDocs') {
     await loadResourceDocs()
     return
-  }
-  if (tabKey === 'mentor') {
-    await loadAgentDocs()
   }
 }
 

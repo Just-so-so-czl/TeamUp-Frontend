@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, login } from '@/api/auth'
@@ -59,8 +59,8 @@ const handleLogin = async () => {
 
 <template>
   <main class="auth-page">
-    <div class="decor decor-left" aria-hidden="true"></div>
-    <div class="decor decor-right" aria-hidden="true"></div>
+    <div class="shape s1" aria-hidden="true"></div>
+    <div class="shape s2" aria-hidden="true"></div>
 
     <section class="auth-shell">
       <aside class="hero-card">
@@ -109,57 +109,34 @@ const handleLogin = async () => {
   padding: 20px;
   display: grid;
   place-items: center;
-  background: linear-gradient(160deg, #fff5e8 0%, #e8f7ff 52%, #ecffe7 100%);
+  background: linear-gradient(160deg, #fff7ef 0%, #f4f2ff 52%, #ecf8ff 100%);
   position: relative;
   overflow: hidden;
 }
-
-.decor {
-  position: absolute;
-  border-radius: 999px;
-  filter: blur(48px);
-  opacity: 0.6;
-}
-
-.decor-left {
-  width: 260px;
-  height: 260px;
-  left: -90px;
-  top: -70px;
-  background: #ffc77a;
-}
-
-.decor-right {
-  width: 320px;
-  height: 320px;
-  right: -130px;
-  bottom: -120px;
-  background: #8fd8ff;
-}
-
+.shape { position: absolute; border-radius: 999px; filter: blur(48px); opacity: 0.6; }
+.s1 { width: 280px; height: 280px; left: -100px; top: -90px; background: #ffc47d; }
+.s2 { width: 330px; height: 330px; right: -130px; bottom: -120px; background: #8fd0ff; }
 .auth-shell {
   width: min(980px, 100%);
-  border-radius: 28px;
+  border-radius: 30px;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(28, 88, 122, 0.12);
-  box-shadow: 0 26px 60px rgba(28, 88, 122, 0.15);
+  grid-template-columns: 1.08fr 1fr;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(255, 255, 255, 0.76);
+  box-shadow: 0 28px 62px rgba(30, 41, 78, 0.18);
   position: relative;
   z-index: 1;
 }
-
 .hero-card {
-  background: linear-gradient(150deg, #1e8cab, #27b29d);
-  color: #f3fdff;
+  background: linear-gradient(156deg, #1f2c4a 0%, #2d436e 56%, #2f6ca7 100%);
+  color: #f3f7ff;
   padding: 44px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 16px;
 }
-
 .hero-tag {
   display: inline-flex;
   width: fit-content;
@@ -167,136 +144,47 @@ const handleLogin = async () => {
   align-items: center;
   border-radius: 999px;
   padding: 8px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   font-size: 12px;
 }
-
-.hero-card h1 {
-  font-size: clamp(28px, 3vw, 36px);
-  line-height: 1.22;
-  font-weight: 700;
-}
-
-.hero-card p {
-  font-size: 15px;
-  line-height: 1.8;
-}
-
-.form-card {
-  padding: 38px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
-.form-card h2 {
-  color: #1f3f54;
-  font-size: 26px;
-  font-weight: 700;
-}
-
-.sub {
-  margin-top: 8px;
-  margin-bottom: 20px;
-  color: #4f6a78;
-  font-size: 14px;
-}
-
-.form {
-  display: grid;
-  gap: 12px;
-}
-
-label {
-  color: #325667;
-  font-size: 14px;
-  font-weight: 600;
-}
-
+.hero-card h1 { font-size: clamp(28px, 3vw, 36px); line-height: 1.2; font-weight: 800; }
+.hero-card p { font-size: 15px; line-height: 1.78; }
+.form-card { padding: 38px; display: flex; flex-direction: column; justify-content: center; }
+.form-card h2 { color: #23263b; font-size: 28px; font-weight: 800; }
+.sub { margin-top: 8px; margin-bottom: 20px; color: #5f687c; font-size: 14px; }
+.form { display: grid; gap: 12px; }
+label { color: #3f475a; font-size: 14px; font-weight: 700; }
 .field {
   display: flex;
   gap: 8px;
   align-items: center;
   border-radius: 14px;
-  border: 1px solid #c9dae5;
+  border: 1px solid #dbe3f0;
   padding: 0 12px;
-  background: #f8fbff;
+  background: #fbfcff;
 }
-
-.field:focus-within {
-  border-color: #1e8cab;
-  box-shadow: 0 0 0 3px rgba(30, 140, 171, 0.18);
-}
-
-input {
-  border: none;
-  outline: none;
-  width: 100%;
-  padding: 12px 0;
-  font-size: 14px;
-  color: #1f4154;
-  background: transparent;
-}
-
-.error {
-  color: #c2410c;
-  font-size: 13px;
-}
-
+.field:focus-within { border-color: #e85d2a; box-shadow: 0 0 0 3px rgba(232, 93, 42, 0.16); }
+input { border: none; outline: none; width: 100%; padding: 12px 0; font-size: 14px; color: #283246; background: transparent; }
+.error { color: #c2410c; font-size: 13px; }
 .submit {
   margin-top: 4px;
   border: none;
   border-radius: 14px;
-  background: linear-gradient(120deg, #ff9f45, #ff7c48);
+  background: linear-gradient(130deg, #f4a736 0%, #e85d2a 100%);
   color: #fff;
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   padding: 12px 16px;
   cursor: pointer;
 }
-
-.submit:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.submit span {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.switch {
-  margin-top: 16px;
-  text-align: center;
-  color: #53707f;
-}
-
-.switch a {
-  color: #1f7ca4;
-  font-weight: 600;
-}
-
-.i {
-  width: 18px;
-  height: 18px;
-  flex-shrink: 0;
-}
-
+.submit:disabled { cursor: not-allowed; opacity: 0.6; }
+.submit span { display: inline-flex; align-items: center; gap: 8px; }
+.switch { margin-top: 16px; text-align: center; color: #5d697f; }
+.switch a { color: #2a78d8; font-weight: 700; }
+.i { width: 18px; height: 18px; flex-shrink: 0; }
 @media (max-width: 920px) {
-  .auth-shell {
-    grid-template-columns: 1fr;
-    max-width: 560px;
-  }
-
-  .hero-card {
-    padding: 28px;
-  }
-
-  .form-card {
-    padding: 28px;
-  }
+  .auth-shell { grid-template-columns: 1fr; max-width: 560px; }
+  .hero-card { padding: 28px; }
+  .form-card { padding: 28px; }
 }
 </style>
-
-

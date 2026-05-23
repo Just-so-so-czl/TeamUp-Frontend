@@ -1,4 +1,4 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import avatar1 from '@/assets/avatar/a1.png'
@@ -515,12 +515,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="dashboard-page">
+    <div class="scene scene-1"></div>
+    <div class="scene scene-2"></div>
+    <div class="scene scene-3"></div>
+
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-logo">TU</div>
         <div class="brand-text">
           <h1>TeamUp</h1>
-          <p>Study Together</p>
+          <p>Let's build together</p>
         </div>
       </div>
 
@@ -550,51 +554,63 @@ onBeforeUnmount(() => {
     </aside>
 
     <main class="workspace">
-      <header class="topbar">
-        <div class="group-actions">
-          <button class="group-btn create-btn" type="button" @click="openCreateModal">
-            <i class="fa-solid fa-plus" aria-hidden="true"></i>
-            <span>创建小组</span>
-          </button>
-          <button class="group-btn join-btn" type="button" @click="openJoinModal">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M10 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
-              <path d="M14 8l4 4-4 4" />
-              <path d="M8 12h10" />
-            </svg>
-            <span>加入小组</span>
-          </button>
+      <header class="hero">
+        <div class="hero-content">
+          <p class="hero-kicker">TEAM COLLAB HUB</p>
+          <h2>{{ activeMenu === 'teams' ? '我的小组空间' : `欢迎回来，${currentUser?.name ?? ''}` }}</h2>
+          <p v-if="activeMenu === 'teams'">你已加入 {{ joinedGroups.length }} 个小组，累计协作成员 {{ totalMembers }} 人次。</p>
+          <p v-else-if="workspaceLoading">正在为你同步最新协作数据...</p>
+          <p v-else>你当前有 {{ pendingTaskCount }} 个待处理任务，最近更新了 {{ recentDocCount }} 份文档。</p>
+          <div class="hero-badges">
+            <span class="hero-badge">小组 {{ joinedGroups.length }}</span>
+            <span class="hero-badge">待办 {{ pendingTaskCount }}</span>
+            <span class="hero-badge">文档 {{ recentDocCount }}</span>
+          </div>
         </div>
-        <div class="search-wrap">
-          <input type="text" placeholder="搜索小组、文档或任务..." />
-        </div>
-        <div ref="settingsMenuRef" class="top-actions">
-          <button class="top-icon-btn" type="button" aria-label="消息" @click="goMessageCenter">
-            <svg viewBox="0 0 24 24" fill="none">
-              <path d="M18 8a6 6 0 1 0-12 0v5l-2 3h16l-2-3V8Zm-7 11h2" />
-            </svg>
-            <span v-if="pendingMessageCount > 0" class="message-badge">{{ pendingMessageBadgeText }}</span>
-          </button>
-          <button class="top-icon-btn" type="button" aria-label="设置" @click.stop="toggleSettingsMenu">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="6" cy="12" r="1.8" fill="currentColor" />
-              <circle cx="12" cy="12" r="1.8" fill="currentColor" />
-              <circle cx="18" cy="12" r="1.8" fill="currentColor" />
-            </svg>
-          </button>
-          <div v-if="settingsMenuVisible" class="settings-menu">
-            <button class="settings-item" type="button" @click="openProfileModal">修改账户</button>
-            <button class="settings-item danger" type="button" @click="handleLogout">退出登录</button>
+
+        <div class="hero-actions">
+          <div class="search-wrap">
+            <input type="text" placeholder="搜索小组、文档或任务..." />
+          </div>
+          <div class="hero-toolbar">
+            <div class="group-actions">
+              <button class="group-btn create-btn" type="button" @click="openCreateModal">
+                <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                <span>创建小组</span>
+              </button>
+              <button class="group-btn join-btn" type="button" @click="openJoinModal">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M10 4H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
+                  <path d="M14 8l4 4-4 4" />
+                  <path d="M8 12h10" />
+                </svg>
+                <span>加入小组</span>
+              </button>
+            </div>
+            <div ref="settingsMenuRef" class="top-actions">
+              <button class="top-icon-btn" type="button" aria-label="消息" @click="goMessageCenter">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M18 8a6 6 0 1 0-12 0v5l-2 3h16l-2-3V8Zm-7 11h2" />
+                </svg>
+                <span v-if="pendingMessageCount > 0" class="message-badge">{{ pendingMessageBadgeText }}</span>
+              </button>
+              <button class="top-icon-btn" type="button" aria-label="设置" @click.stop="toggleSettingsMenu">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="6" cy="12" r="1.8" fill="currentColor" />
+                  <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+                  <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+                </svg>
+              </button>
+              <div v-if="settingsMenuVisible" class="settings-menu">
+                <button class="settings-item" type="button" @click="openProfileModal">修改账户</button>
+                <button class="settings-item danger" type="button" @click="handleLogout">退出登录</button>
+              </div>
+            </div>
           </div>
         </div>
       </header>
 
       <template v-if="activeMenu === 'teams'">
-        <section class="teams-overview">
-          <h2>我的小组</h2>
-          <p>你已加入 {{ joinedGroups.length }} 个小组，累计协作成员 {{ totalMembers }} 人次。</p>
-        </section>
-
         <section v-if="teamsLoading" class="teams-feedback">正在加载我的小组...</section>
         <section v-else-if="teamsError" class="teams-feedback error">{{ teamsError }}</section>
         <section v-else-if="joinedGroups.length === 0" class="teams-feedback">你还没有加入任何小组，先创建一个吧。</section>
@@ -621,16 +637,10 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else>
-        <section class="greeting">
-          <h2>下午好，{{ currentUser?.name ?? '' }} 👋</h2>
-          <p v-if="workspaceLoading">正在为你同步最新协作数据...</p>
-          <p v-else>你当前有 {{ pendingTaskCount }} 个待处理任务，最近更新了 {{ recentDocCount }} 份文档。</p>
-        </section>
-
         <section v-if="workspaceError" class="teams-feedback error">{{ workspaceError }}</section>
 
-        <section class="main-grid">
-          <article class="card">
+        <section class="split-layout">
+          <article class="card tall-card">
             <div class="card-title">正在进行的小组</div>
             <ul v-if="activeGroupItems.length > 0">
               <li v-for="group in activeGroupItems" :key="group.id" class="jump-item" @click="goTeamDetailById(group.id)">
@@ -641,27 +651,29 @@ onBeforeUnmount(() => {
             <p v-else class="card-empty-tip">暂无进行中的小组</p>
           </article>
 
-          <article class="card">
-            <div class="card-title">待处理的任务</div>
-            <ul v-if="pendingTaskItems.length > 0">
-              <li v-for="task in pendingTaskItems" :key="task.id" class="jump-item" @click="goTeamDetailById(task.teamId)">
-                <span class="item-name">{{ task.title }}</span>
-                <span class="item-sub">{{ task.groupName }} · 截止 {{ task.due }}</span>
-              </li>
-            </ul>
-            <p v-else class="card-empty-tip">当前没有分配给你的待办任务</p>
-          </article>
+          <div class="stacked-cards">
+            <article class="card">
+              <div class="card-title">待处理的任务</div>
+              <ul v-if="pendingTaskItems.length > 0">
+                <li v-for="task in pendingTaskItems" :key="task.id" class="jump-item" @click="goTeamDetailById(task.teamId)">
+                  <span class="item-name">{{ task.title }}</span>
+                  <span class="item-sub">{{ task.groupName }} · 截止 {{ task.due }}</span>
+                </li>
+              </ul>
+              <p v-else class="card-empty-tip">当前没有分配给你的待办任务</p>
+            </article>
 
-          <article class="card docs-card">
-            <div class="card-title">近期文档</div>
-            <ul v-if="recentDocItems.length > 0">
-              <li v-for="doc in recentDocItems" :key="doc.id" class="jump-item" @click="goDocTarget(doc)">
-                <span class="item-name">{{ doc.title }}</span>
-                <span class="item-sub">{{ doc.groupName }} · {{ doc.updateTime }}</span>
-              </li>
-            </ul>
-            <p v-else class="card-empty-tip">近期暂无文档更新</p>
-          </article>
+            <article class="card">
+              <div class="card-title">近期文档</div>
+              <ul v-if="recentDocItems.length > 0">
+                <li v-for="doc in recentDocItems" :key="doc.id" class="jump-item" @click="goDocTarget(doc)">
+                  <span class="item-name">{{ doc.title }}</span>
+                  <span class="item-sub">{{ doc.groupName }} · {{ doc.updateTime }}</span>
+                </li>
+              </ul>
+              <p v-else class="card-empty-tip">近期暂无文档更新</p>
+            </article>
+          </div>
         </section>
       </template>
     </main>
@@ -782,19 +794,72 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .dashboard-page {
+  --color-primary: #e85d2a;
+  --color-primary-2: #f19b2c;
+  --color-accent: #1f7cf0;
+  --color-text: #1f2431;
+  --color-muted: #636a7b;
+  --radius-md: 20px;
+  --radius-lg: 30px;
+  --shadow-soft: 0 18px 36px rgba(33, 25, 73, 0.14);
+  --shadow-hover: 0 24px 42px rgba(33, 25, 73, 0.2);
   display: flex;
   min-height: 100vh;
-  background: linear-gradient(140deg, #eefaf7 0%, #e5f5fb 52%, #f5fcfb 100%);
-  color: #204d4c;
+  position: relative;
+  overflow: hidden;
+  font-family: 'Poppins', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: linear-gradient(145deg, #fef7ef 0%, #f8f6ff 52%, #eef8ff 100%);
+  color: var(--color-text);
+}
+
+.scene {
+  position: absolute;
+  pointer-events: none;
+}
+
+.scene-1 {
+  width: 620px;
+  height: 620px;
+  border-radius: 50%;
+  top: -220px;
+  left: -180px;
+  background: radial-gradient(circle, rgba(232, 93, 42, 0.18) 0%, rgba(232, 93, 42, 0) 68%);
+}
+
+.scene-2 {
+  width: 740px;
+  height: 420px;
+  border-radius: 999px;
+  right: -220px;
+  top: 70px;
+  transform: rotate(-18deg);
+  background: linear-gradient(90deg, rgba(31, 124, 240, 0.14) 0%, rgba(241, 155, 44, 0.16) 100%);
+  filter: blur(2px);
+}
+
+.scene-3 {
+  inset: 0;
+  opacity: 0.24;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.48) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.48) 1px, transparent 1px);
+  background-size: 38px 38px;
+  mask-image: linear-gradient(to bottom, black 25%, transparent 85%);
 }
 
 .sidebar {
-  width: 270px;
-  background: #f4fcfa;
-  border-right: 1px solid #cfe7e3;
+  position: relative;
+  z-index: 1;
+  width: 290px;
+  margin: 18px 0 18px 18px;
+  border-radius: 28px;
+  background: linear-gradient(170deg, rgba(35, 38, 61, 0.95) 0%, rgba(21, 31, 53, 0.93) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
   display: flex;
   flex-direction: column;
   padding: 28px 18px 20px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 26px 44px rgba(15, 22, 39, 0.3);
 }
 
 .brand {
@@ -805,29 +870,31 @@ onBeforeUnmount(() => {
 }
 
 .brand-logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #24b3a8 0%, #46c4da 100%);
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #f6ab35 0%, #e85d2a 58%, #dc3f1f 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
   color: #fff;
   letter-spacing: 1px;
+  box-shadow: 0 14px 24px rgba(232, 93, 42, 0.42);
 }
 
 .brand-text h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: 23px;
   line-height: 1.1;
-  font-weight: 700;
+  font-weight: 800;
+  color: #ffffff;
 }
 
 .brand-text p {
   margin: 2px 0 0;
   font-size: 12px;
-  color: #4d7f7d;
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .menu {
@@ -841,8 +908,8 @@ onBeforeUnmount(() => {
   width: 100%;
   border: none;
   border-radius: 14px;
-  background: transparent;
-  color: #2d6361;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.82);
   text-align: left;
   padding: 12px 14px;
   font-size: 15px;
@@ -865,13 +932,14 @@ onBeforeUnmount(() => {
 }
 
 .menu-item:hover {
-  background: #dcf3ef;
+  background: rgba(255, 255, 255, 0.13);
+  transform: translateX(4px);
 }
 
 .menu-item.active {
-  background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%);
+  background: linear-gradient(140deg, #f6ab35 0%, #e85d2a 100%);
   color: #fff;
-  box-shadow: 0 10px 20px rgba(63, 173, 186, 0.28);
+  box-shadow: 0 14px 24px rgba(255, 111, 61, 0.34);
 }
 
 .profile {
@@ -879,8 +947,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #def3ef;
-  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-md);
   padding: 12px;
 }
 
@@ -889,49 +958,114 @@ onBeforeUnmount(() => {
   height: 40px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #bfe8e0;
-  background: #bfe8e0;
+  border: 2px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .name {
   font-size: 14px;
   font-weight: 700;
+  color: #ffffff;
 }
 
 .email {
   font-size: 12px;
-  color: #487875;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .workspace {
+  position: relative;
+  z-index: 1;
   flex: 1;
-  padding: 28px 34px;
+  padding: 18px;
 }
 
-.topbar {
+.hero {
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 90% 18%, rgba(31, 124, 240, 0.18) 0%, transparent 27%),
+    radial-gradient(circle at 10% 88%, rgba(241, 155, 44, 0.22) 0%, transparent 34%),
+    linear-gradient(130deg, rgba(255, 255, 255, 0.87) 0%, rgba(255, 252, 247, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: var(--shadow-soft);
+  padding: 24px;
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(340px, 540px);
+  gap: 18px;
+}
+
+.hero-kicker {
+  margin: 0 0 10px;
+  color: #8f6983;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.hero h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.15;
+  font-weight: 800;
+  color: #29233d;
+}
+
+.hero p {
+  margin: 10px 0 0;
+  color: var(--color-muted);
+  font-size: 15px;
+}
+
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.hero-badge {
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #f0e7da;
+  color: #6b5563;
+}
+
+.hero-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-toolbar {
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .group-actions {
   display: flex;
   gap: 10px;
-  flex-shrink: 0;
+  align-items: center;
 }
 
 .group-btn {
-  height: 42px;
-  border-radius: 12px;
+  height: 44px;
+  border-radius: 14px;
   padding: 0 14px;
-  border: 1px solid #8ecfd8;
+  border: 1px solid #efe6d9;
   display: inline-flex;
   align-items: center;
   gap: 8px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .group-btn svg {
@@ -946,53 +1080,55 @@ onBeforeUnmount(() => {
 
 .create-btn {
   color: #fff;
-  border-color: #3fb9c8;
-  background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%);
+  border-color: transparent;
+  background: linear-gradient(140deg, #f6ab35 0%, #e85d2a 100%);
+  box-shadow: 0 10px 18px rgba(232, 93, 42, 0.28);
 }
 
 .join-btn {
-  color: #256466;
-  background: #eefbfc;
+  color: #744233;
+  background: #fff;
 }
 
 .group-btn:hover {
-  filter: brightness(1.02);
+  transform: translateY(-1px);
 }
 
 .search-wrap {
   width: min(420px, 100%);
-  flex-shrink: 1;
+  flex: 1;
 }
 
 .search-wrap input {
   width: 100%;
-  border: 1px solid #bedeea;
+  border: 1px solid rgba(255, 255, 255, 0.64);
   border-radius: 14px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.94);
+  background: rgba(255, 255, 255, 0.82);
   font-size: 14px;
-  color: #245353;
+  color: #3f3f46;
 }
 
 .search-wrap input:focus {
   outline: none;
-  border-color: #4dbed1;
-  box-shadow: 0 0 0 3px rgba(77, 190, 209, 0.2);
+  border-color: #ff8f6a;
+  box-shadow: 0 0 0 3px rgba(255, 111, 61, 0.22);
 }
 
 .top-actions {
   position: relative;
   display: flex;
   gap: 10px;
-  margin-left: auto;
-  flex-shrink: 0;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 44px;
 }
 
 .top-actions > .top-icon-btn {
-  border: 1px solid #bedeea;
-  border-radius: 12px;
-  background: #fff;
-  color: #2d6768;
+  border: 1px solid rgba(255, 255, 255, 0.56);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #5f4f49;
   width: 42px;
   height: 42px;
   padding: 0;
@@ -1004,7 +1140,7 @@ onBeforeUnmount(() => {
 }
 
 .top-actions > .top-icon-btn:hover {
-  background: #e9f8fc;
+  background: #ffffff;
 }
 
 .top-actions svg {
@@ -1039,23 +1175,27 @@ onBeforeUnmount(() => {
   top: calc(100% + 10px);
   right: 0;
   min-width: 198px;
-  border: 1px solid #cde8ea;
+  border: 1px solid rgba(255, 255, 255, 0.74);
   border-radius: 16px;
-  background: linear-gradient(160deg, #ffffff 0%, #f4fcfd 100%);
-  box-shadow: 0 18px 34px rgba(44, 106, 112, 0.18);
+  background: linear-gradient(160deg, #ffffff 0%, #fff5f0 100%);
+  box-shadow: var(--shadow-soft);
   padding: 10px;
   z-index: 40;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  align-items: stretch;
 }
 
 .settings-item {
   width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 42px;
-  border: 1px solid #39b5c5;
+  border: 1px solid transparent;
   border-radius: 12px;
-  background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%);
+  background: linear-gradient(135deg, #ff8f6a 0%, #ff6f3d 100%);
   color: #ffffff;
   font-size: 15px;
   font-weight: 700;
@@ -1068,11 +1208,11 @@ onBeforeUnmount(() => {
 .settings-item:hover {
   transform: translateY(-1px);
   filter: brightness(1.03);
-  box-shadow: 0 10px 16px rgba(67, 152, 165, 0.24);
+  box-shadow: 0 10px 16px rgba(199, 121, 54, 0.24);
 }
 
 .settings-item.danger {
-  border-color: #39b5c5;
+  border-color: transparent;
   color: #ffffff;
 }
 .avatar-pick-grid {
@@ -1095,66 +1235,24 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 .avatar-pick-item.active {
-  border-color: #4dbed1;
-  box-shadow: 0 0 0 3px rgba(77, 190, 209, 0.2);
-}
-
-.greeting {
-  margin-top: 22px;
-  background: linear-gradient(135deg, #bfeee6 0%, #dcf4fb 100%);
-  border-radius: 20px;
-  padding: 24px;
-  color: #1e4f4d;
-}
-
-.greeting h2 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.greeting p {
-  margin: 8px 0 0;
-  font-size: 15px;
-}
-
-.teams-overview {
-  margin-top: 22px;
-  background: linear-gradient(135deg, #c6efe7 0%, #dff3fb 52%, #edf9f8 100%);
-  border: 1px solid #cde8ea;
-  border-radius: 20px;
-  padding: 22px 24px;
-  color: #1f5050;
-}
-
-.teams-overview h2 {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.teams-overview p {
-  margin: 8px 0 0;
-  font-size: 15px;
-  color: #4f7e7f;
+  border-color: #e85d2a;
+  box-shadow: 0 0 0 3px rgba(232, 93, 42, 0.18);
 }
 
 .teams-grid {
-  margin-top: 18px;
+  margin-top: 20px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
 }
 
 .teams-feedback {
-  margin-top: 18px;
-  border: 1px solid #d3e9ec;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.95);
+  margin-top: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.8);
   padding: 16px;
-  color: #376a6f;
+  color: #57565e;
   font-size: 14px;
 }
 
@@ -1165,11 +1263,11 @@ onBeforeUnmount(() => {
 }
 
 .team-card {
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid #d3e9ec;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.96) 0%, rgba(249, 255, 255, 0.94) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.74);
   border-radius: 18px;
-  padding: 18px;
-  box-shadow: 0 8px 20px rgba(98, 170, 181, 0.16);
+  padding: 20px;
+  box-shadow: var(--shadow-soft);
 }
 
 .clickable {
@@ -1179,7 +1277,7 @@ onBeforeUnmount(() => {
 
 .clickable:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 22px rgba(98, 170, 181, 0.2);
+  box-shadow: var(--shadow-hover);
 }
 
 .team-header {
@@ -1192,15 +1290,15 @@ onBeforeUnmount(() => {
 .team-header h3 {
   margin: 0;
   font-size: 18px;
-  color: #245656;
+  color: #25213a;
   font-weight: 700;
 }
 
 .role-tag {
   border-radius: 999px;
-  background: #edf8fb;
-  border: 1px solid #bfe0ea;
-  color: #2f6b78;
+  background: rgba(18, 183, 168, 0.14);
+  border: 1px solid rgba(18, 183, 168, 0.3);
+  color: #0b786e;
   font-size: 12px;
   padding: 5px 10px;
   font-weight: 700;
@@ -1209,7 +1307,7 @@ onBeforeUnmount(() => {
 
 .team-desc {
   margin: 12px 0;
-  color: #416d72;
+  color: #656179;
   font-size: 14px;
   line-height: 1.6;
 }
@@ -1218,7 +1316,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  color: #5c878b;
+  color: #7a7990;
   font-size: 13px;
   margin-bottom: 12px;
 }
@@ -1230,37 +1328,38 @@ onBeforeUnmount(() => {
 }
 
 .member-pill {
-  background: #f3fcfb;
-  border: 1px solid #d5ece7;
-  color: #3f6f6f;
+  background: #f5fbff;
+  border: 1px solid #ddedf8;
+  color: #37586b;
   border-radius: 999px;
   font-size: 12px;
   padding: 6px 10px;
 }
 
-.main-grid {
+.split-layout {
   margin-top: 20px;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.15fr);
+  gap: 14px;
+}
+
+.stacked-cards {
+  display: grid;
+  gap: 14px;
 }
 
 .card {
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid #d4eaed;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 250, 246, 0.9) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 18px;
   padding: 18px;
-  box-shadow: 0 6px 20px rgba(115, 176, 180, 0.14);
-}
-
-.docs-card {
-  grid-column: 1 / -1;
+  box-shadow: var(--shadow-soft);
 }
 
 .card-title {
   font-size: 17px;
   font-weight: 700;
-  color: #245656;
+  color: #2d2744;
   margin-bottom: 12px;
 }
 
@@ -1274,7 +1373,8 @@ onBeforeUnmount(() => {
 }
 
 .card li {
-  background: #f4fcfb;
+  background: #ffffff;
+  border: 1px solid #f0edf8;
   border-radius: 12px;
   padding: 10px 12px;
   display: flex;
@@ -1287,62 +1387,66 @@ onBeforeUnmount(() => {
 }
 .jump-item:hover {
   transform: translateY(-1px);
-  box-shadow: 0 8px 14px rgba(98, 170, 181, 0.16);
-  background: #ebf8f8;
+  box-shadow: 0 10px 20px rgba(83, 58, 140, 0.14);
+  background: #fcf8ff;
 }
 
 .item-name {
   font-size: 14px;
   font-weight: 600;
-  color: #264f4f;
+  color: #2a2740;
 }
 
 .item-sub {
   font-size: 12px;
-  color: #53817f;
+  color: #818097;
 }
 .card-empty-tip {
   margin: 0;
-  color: #5a8688;
+  color: #838299;
   font-size: 13px;
+}
+
+.tall-card {
+  min-height: 100%;
 }
 
 
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(15, 39, 53, 0.45);
+  background: rgba(27, 19, 42, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1200;
+  z-index: 1600;
   padding: 16px;
 }
 
 .create-modal {
   width: min(520px, 100%);
-  background: #ffffff;
-  border: 1px solid #d1e8eb;
-  border-radius: 18px;
-  box-shadow: 0 24px 60px rgba(32, 90, 104, 0.24);
+  background: linear-gradient(180deg, #ffffff 0%, #fff8f4 100%);
+  border: 1px solid rgba(255, 255, 255, 0.82);
+  border-radius: var(--radius-md);
+  box-shadow: 0 24px 60px rgba(42, 30, 71, 0.24);
   padding: 20px;
 }
 
 .create-modal h3 {
   margin: 0;
-  color: #25595a;
+  color: #2f303a;
   font-size: 22px;
 }
 
 .modal-sub {
   margin: 8px 0 14px;
-  color: #5b8283;
+  color: #777784;
   font-size: 14px;
 }
 
 .field-label {
   display: block;
-  color: #316768;
+  color: #4d4f5d;
   font-size: 13px;
   font-weight: 700;
   margin-top: 10px;
@@ -1351,13 +1455,13 @@ onBeforeUnmount(() => {
 .modal-input,
 .modal-textarea {
   width: 100%;
-  border: 1px solid #c9e2e7;
+  border: 1px solid #ebdfef;
   border-radius: 12px;
   margin-top: 6px;
   padding: 10px 12px;
   font-size: 14px;
-  color: #224f50;
-  background: #f9fdfd;
+  color: #34343d;
+  background: #fff;
 }
 
 .modal-textarea {
@@ -1368,8 +1472,8 @@ onBeforeUnmount(() => {
 .modal-input:focus,
 .modal-textarea:focus {
   outline: none;
-  border-color: #4dbed1;
-  box-shadow: 0 0 0 3px rgba(77, 190, 209, 0.2);
+  border-color: #ff8f6a;
+  box-shadow: 0 0 0 3px rgba(255, 111, 61, 0.22);
 }
 
 .modal-error {
@@ -1380,7 +1484,7 @@ onBeforeUnmount(() => {
 
 .modal-success {
   margin: 10px 0 0;
-  color: #0f766e;
+  color: var(--color-success);
   font-size: 13px;
 }
 
@@ -1402,13 +1506,13 @@ onBeforeUnmount(() => {
 }
 
 .modal-btn.cancel {
-  background: #f1fbfc;
-  border-color: #b8dfe5;
-  color: #2b6668;
+  background: #f4f0ff;
+  border-color: #e4dbff;
+  color: #4f4578;
 }
 
 .modal-btn.confirm {
-  background: linear-gradient(135deg, #2bb9b0 0%, #4bc1d6 100%);
+  background: linear-gradient(135deg, #ff8f6a 0%, #ff6f3d 100%);
   color: #fff;
 }
 
@@ -1421,13 +1525,13 @@ onBeforeUnmount(() => {
   position: fixed;
   top: 22px;
   right: 22px;
-  z-index: 1500;
+  z-index: 1800;
   max-width: min(360px, calc(100vw - 32px));
-  border: 1px solid #9ed9e2;
+  border: 1px solid rgba(255, 255, 255, 0.82);
   border-radius: 12px;
-  background: linear-gradient(135deg, #edfafd 0%, #f4fbf8 100%);
-  color: #1f6169;
-  box-shadow: 0 12px 24px rgba(52, 130, 142, 0.2);
+  background: linear-gradient(135deg, #fff3ec 0%, #ffffff 100%);
+  color: #7e2f1b;
+  box-shadow: 0 12px 24px rgba(82, 54, 121, 0.2);
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 700;
@@ -1435,7 +1539,7 @@ onBeforeUnmount(() => {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: all 0.2s ease;
+  transition: all 0.22s ease;
 }
 
 .toast-fade-enter-from,
@@ -1451,24 +1555,36 @@ onBeforeUnmount(() => {
 
   .sidebar {
     width: 100%;
-    border-right: none;
-    border-bottom: 1px solid #cfe7e3;
+    margin: 12px 12px 0;
+    border-right: 1px solid rgba(255, 255, 255, 0.16);
+    border-bottom: none;
   }
 
-  .main-grid {
+  .hero {
     grid-template-columns: 1fr;
   }
 
   .teams-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .split-layout {
     grid-template-columns: 1fr;
   }
 
-  .docs-card {
-    grid-column: auto;
+  .workspace {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 768px) {
+  .hero h2 {
+    font-size: 27px;
   }
 
-  .topbar {
-    flex-wrap: wrap;
+  .teams-grid {
+    width: 100%;
+    grid-template-columns: 1fr;
   }
 
   .group-actions {
@@ -1480,22 +1596,35 @@ onBeforeUnmount(() => {
     justify-content: center;
   }
 
-  .search-wrap {
-    width: 100%;
+  .hero-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .top-actions {
-    margin-left: 0;
     width: 100%;
     justify-content: flex-end;
   }
+
+  .settings-menu {
+    right: 0;
+  }
+
+  .search-wrap input {
+    padding: 11px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 </style>
-
-
-
-
-
 
 
 

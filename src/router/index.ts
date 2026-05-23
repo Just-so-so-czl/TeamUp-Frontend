@@ -4,6 +4,7 @@ import LoginView from '../views/LoginView.vue'
 import RegisterView from '../views/RegisterView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import TeamDetailView from '../views/TeamDetailView.vue'
+import TeamMentorView from '../views/TeamMentorView.vue'
 import MessageCenterView from '../views/MessageCenterView.vue'
 import { ApiError, fetchCurrentUser } from '@/api/auth'
 import { clearAuthStorage, getStoredLoginUser, getStoredToken, saveStoredLoginUser } from '@/utils/authUser'
@@ -40,6 +41,12 @@ const router = createRouter({
       name: 'team-detail',
       component: TeamDetailView,
       meta: { title: '小组详情 - TeamUp' },
+    },
+    {
+      path: '/teams/:id/mentor',
+      name: 'team-mentor',
+      component: TeamMentorView,
+      meta: { title: '智能导师 - TeamUp' },
     },
     {
       path: '/messages',

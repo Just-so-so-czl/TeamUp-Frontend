@@ -1,0 +1,653 @@
+<template>
+  <main class="team-page">
+    <section class="team-hero">
+      <div class="hero-topbar">
+        <button class="back-btn" type="button" @click="goBack">闂佸搫顦弲婊堝蓟閵娿儍?</button>
+        <button v-if="currentUserCaptain" class="hero-action-btn edit-team-btn" type="button" @click="openEditTeamModal">缂傚倸鍊搁崐褰掓偋閻愬灚顐?/button>
+      </div>
+
+      <div class="team-summary">
+        <h2 class="team-name">{{ teamInfo.name }}</h2>
+        <p class="team-desc">{{ teamInfo.description }}</p>
+        <div class="invite-inline">
+          <span class="invite-inline-label">閭€璇风爜</span>
+          <div class="invite-inline-code">{{ teamInfo.inviteCode }}</div>
+          <button class="copy-btn" type="button" @click="copyInviteCode">濠电姰鍨煎▔娑氱矓閹绢喖鏄?/button>
+        </div>
+      </div>
+
+      <div class="sidebar-members">
+        <div class="sidebar-title">闂佽绻愮换鎰崲閹烘柨鍨濈€广儱顦粻锝夋煙闁箑澧柛?</div>
+        <p v-if="membersLoading" class="member-tip">闂備礁鎲″缁樻叏閹灐褰掑炊閵娧€鏋?..</p>
+        <p v-else-if="membersError" class="member-tip error">{{ membersError }}</p>
+        <ul v-else class="sidebar-member-list">
+          <li
+            v-for="member in memberDisplayList"
+            :key="`sidebar-${member.isPending ? 'pending' : 'member'}-${member.id}-${member.requestId || ''}`"
+            class="sidebar-member-item"
+          >
+            <img class="member-avatar" :src="memberAvatarSrc(member.avatar)" :alt="`${member.username}-avatar`" />
+            <div class="sidebar-member-main">
+              <div class="sidebar-member-name">{{ member.username }}</div>
+              <div class="sidebar-member-role">{{ member.roleName }}</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+
+      <div class="my-role-card">
+        <div class="my-role-head">
+          <img class="member-avatar me" :src="memberAvatarSrc(currentUser?.avatar)" :alt="`${currentUser?.name || 'me'}-avatar`" />
+          <div>
+            <div class="my-role-name">{{ currentUser?.name || '--' }}</div>
+            <div class="my-role-tag">{{ selfRoleName || '--' }}</div>
+          </div>
+        </div>
+        <div class="my-role-desc-row">
+          <p class="my-role-desc">{{ selfRoleDesc || '还没有填写角色描述' }}</p>
+          <button class="edit-pencil-btn" type="button" @click="startEditSelfRoleDesc" aria-label="修改描述">✎</button>
+        </div>
+      </div>
+
+      <p v-if="loading" class="status-tip">婵犳鍠楃换鎰緤閽樺鑰挎い蹇撶墕缁€澶愭煟濡厧鍔嬬紒浣峰嵆閹绠涢幘鍓侇唺缂備緡鍠栫粔鐢电矚闁秴鐒洪柛鎰屽懐顦?..</p>
+      <p v-if="errorMessage" class="status-tip error">{{ errorMessage }}</p>
+    </section>
+
+    <section class="team-tabs">
+      <button
+        v-for="tab in tabs"
+        :key="tab.key"
+        class="tab-btn"
+        :class="{ active: activeTab === tab.key }"
+        type="button"
+        @click="handleTabClick(tab.key)"
+      >
+        {{ tab.label }}
+      </button>
+    </section>
+
+    <section v-if="activeTab === 'tasks'" class="content-panel">
+      <div class="panel-head">
+        <div class="panel-title">婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤︻偄鈹戞幊閸婃洜鈧哎鍔戦崺鈧?/div>
+        <div class="task-header-actions">
+          <button class="my-todo-btn" type="button" @click="openMyTodoModal">闂傚倷绀侀幖顐ゆ偖椤愶箑纾块柛鎰嚋閼板潡鏌涘☉娆愮稇缂佺媴缍侀弻鐔衡偓鐢殿焾鏍￠梺浼欑秬娴滎剟鍩€椤掆偓閻忔艾顭垮鈧獮濠冩償閵忊€冲伎</button>
+          <button
+            v-if="canCreateTaskList"
+            class="create-task-list-btn"
+            type="button"
+            @click="openTaskCreateModal"
+          >
+            闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾句粙鏌熼幆褜鍤熸い鈺冨厴閹綊宕堕妸銉хシ濡炪値鍋侀崐鏍崲濞戙垹绠婚柧蹇ｅ亜濞咃綁鎮?
+          </button>
+        </div>
+      </div>
+      <p v-if="taskLoading" class="member-tip">濠电姵顔栭崰妤冩崲閹邦喖绶ら柦妯侯檧閼版寧銇勮箛鎾跺缂佲偓婢舵劖鐓熸俊顖滃帶閸斿绱掓担瑙勭凡闂囧鏌ｅΟ纭咁劅闁搞倖鐟ラ埞鎴︻敊閹勭€婚梺闈涙鐢€崇暦閵娾晩鏁囬柣鎰問濡?..</p>
+      <p v-else-if="taskError" class="member-tip error">{{ taskError }}</p>
+      <p v-else-if="taskLists.length === 0" class="member-tip">闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ鍝勬倎闁绘帒锕悡顐﹀炊閵婏妇顦梺娲诲幖椤戝顕ｉ崼鏇炵厸闁稿鐏氶崹鍧楀箚閳ь剟鏌涘☉娆愮稇閻庢艾顦…璺ㄦ崉娓氼垱效閻庤娲橀悡锟犲蓟濞戙垹妫橀柛婵嗗閳峰绱撴担瑙勭叆妞ゎ厼鍢查悾?</p>
+      <ul v-else class="task-list">
+        <li v-for="taskListItem in taskLists" :key="taskListItem.taskListId" class="task-item">
+          <div class="task-list-top">
+            <button class="task-list-head" type="button" @click="toggleTaskList(taskListItem.taskListId)">
+              <div class="task-list-info">
+                <div class="task-title">{{ taskListItem.title }}</div>
+                <div class="task-desc-row">
+                  <div class="task-desc">{{ taskListItem.description || '閺嗗倹妫ゅ〒鍛礋閹诲繗鍫? }}</div>
+                  <div class="task-meta">
+                    閸掓稑缂撻懓鍜冪窗{{ taskListItem.creatorName }} 璺?DDL閿涙{ formatTime(taskListItem.deadline) }}
+                  </div>
+                </div>
+
+              </div>
+              <div class="task-list-progress-col">
+                <div class="task-progress">
+                  <div class="task-progress-text">
+                    闂備礁鎼ˇ顐﹀疾濠婂懐鐭欓柟瀵稿Л閸嬫挾鎲撮崟顐熸灆闂佽桨绀佺粔鎾綖閵忋垻绱?taskListProgressMap[taskListItem.taskListId]?.completed || 0 }}/{{ taskListProgressMap[taskListItem.taskListId]?.total || 0 }}
+                    闂傚倷鐒︾€笛呯矙閹存繍鐔嗛柡?taskListProgressMap[taskListItem.taskListId]?.percent || 0 }}%闂?                  </div>
+                  <div class="task-progress-track">
+                    <div
+                      class="task-progress-fill"
+                      :style="{ width: `${taskListProgressMap[taskListItem.taskListId]?.percent || 0}%` }"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+              <span class="task-list-arrow" :class="{ expanded: expandedTaskListId === taskListItem.taskListId }">闂?</span>
+            </button>
+            <div v-if="canCreateTaskList" class="task-list-actions">
+              <button class="icon-btn add" type="button" @click="openTaskItemCreateModal(taskListItem)" title="闂佸搫鍊瑰姗€路閸愨晝顩烽悹鍥ㄥ絻椤?><span aria-hidden="true">闂?</span></button>
+              <button class="task-edit-btn" type="button" @click="openTaskListEditModal(taskListItem)" title="缂傚倸鍊归悧鐐垫椤愵潿鈧帡宕ㄩ鐐殿槹">闂?</button>
+              <button class="icon-btn danger" type="button" @click="openTaskListDeleteModal(taskListItem)" title="闂佸憡甯炴繛鈧繛鍛閵嗘帡宕ㄩ鐐殿槹"><span aria-hidden="true">濡絽鍟ˉ?</span></button>
+            </div>
+
+            </div>
+          </div>
+          <div v-if="expandedTaskListId === taskListItem.taskListId" class="task-detail-wrap">
+            <p v-if="!taskListItem.tasks || taskListItem.tasks.length === 0" class="task-empty-tip">闂備浇宕垫慨鏉懨洪姀銈呯？闁肩⒈鍓涢崡姘攽閻樺疇澹樼痪顓涘亾闂備礁鎼ú锕€顫濋妸鈺傚仭闁瑰墽绮悡娑㈡煕閳╁喚娈旈柍褜鍓涢幊鎾圭亱闂侀潧鐗嗗Λ娑€呴悜鑺ュ仯闁搞儯鍔岀徊缁樸亜?</p>
+            <ul v-else class="task-detail-list">
+              <li
+                v-for="taskItem in taskListItem.tasks"
+                :key="taskItem.taskId"
+                class="task-detail-item"
+                :class="{ mine: isCurrentUserResponsible(taskItem) }"
+              >
+                <div class="task-detail-main">
+                  <div class="task-detail-desc-col">
+                    <button
+                      v-if="isCurrentUserResponsible(taskItem)"
+                      class="task-complete-check"
+                      :class="{ checked: taskItem.status === 1 }"
+                      type="button"
+                      :disabled="taskItem.status === 1"
+                      @click="handleTaskCheckClick(taskItem)"
+                    >
+                      <span>{{ taskItem.status === 1 ? '闂? : '' }}</span>
+                    </button>
+                    <span class="task-detail-status" :class="{ done: taskItem.status === 1 }">
+                      {{ taskItem.status === 1 ? '闂佽娴烽幊鎾诲箟闄囬妵鎰板礃椤旇棄浠煎銈嗗笒鐎氼剛绮? : '闂佽楠搁悘姘熆濮椻偓楠炲﹥鎯旈姀鈥冲伎? }}
+                    </span>
+                    <span class="task-detail-desc">{{ taskItem.description }}</span>
+                  </div>
+                  <span class="task-detail-deadline">
+                    {{ taskItem.status !== 1 ? `DDL 闂?${formatTime(taskItem.deadline)}` : `闂備浇顕уù鐑藉箠閹捐瀚夋い鎺戝閸ㄥ倹鎱ㄥ鍡楀箻妞?闂?${formatTime(taskItem.deadline)}` }}
+                  </span>
+                  <div class="task-assignee-line">
+                    闂備浇宕垫慨鐢稿礉濡ゅ懎绐楅柡鍥ュ灪閸庢淇婇妶鍕厡妞も晜鐓￠弻锝咁潩椤掑娈剁紓?
+                    <span v-if="!taskItem.assignees || taskItem.assignees.length === 0">闂傚倷绀侀幖顐︽偋濠婂嫮顩叉繝濠傜墕閸ㄥ倿骞栧ǎ顒€濡介柣鎾亾</span>
+                    <span v-else>{{ taskItem.assignees.map((item) => item.username).join('闂?) }}</span>
+                  </div>
+                  <div class="task-item-actions">
+                    <button
+                      class="task-item-btn claim"
+                      type="button"
+                      :disabled="taskItem.status === 1 || taskActionLoadingKey === `claim-${taskItem.taskId}` || hasCurrentUserClaimed(taskItem)"
+                      @click="handleClaimTask(taskItem.taskId)"
+                    >
+                      {{
+                        hasCurrentUserClaimed(taskItem)
+                          ? '闂佽姘﹂～澶愭偤閺囩姳鐒婃い蹇撶墱閺佸洨绱撴担鐧稿叕缂?
+                          : (taskActionLoadingKey === `claim-${taskItem.taskId}` ? '闂備浇宕垫慨鎶芥⒔瀹ュ纾规繝闈涱儍閳ь剙鍊块、鏇㈡晲閸ワ絾鐏?..' : '闂備浇宕垫慨鎶芥⒔瀹ュ纾规繝闈涱儍閳ь剙鍊块、鏇㈡晲閸ヨ埖绁梺鑽ゅТ濞诧箒銇愰崘顕嗙稏?)
+                      }}
+                    </button>
+                    <button
+                      v-if="canManageTaskAssignee"
+                      class="task-item-btn assign"
+                      type="button"
+                      :disabled="taskItem.status === 1 || taskAssignLoading"
+                      @click="openTaskAssignModal(taskItem.taskId, taskItem.description, taskItem.assignees || [])"
+                    >
+                      婵犵數鍋涢悺銊у垝瀹€鍕妞ゆ劧绠戠粻鐔兼煙閹増顥夌紒鈧崱娑欑厱闁斥晛鍟伴埥澶愭偨?
+                    </button>
+                  </div>
+                </div>
+                <div v-if="taskItem.status === 1" class="task-completion-line">
+                  闂備浇顕уù鐑藉箠閹捐瀚夋い鎺戝閸ㄥ倹鎱ㄥ鍡楀箹缂佸墎鍋ら弻娑㈠Ψ閿濆懎顬夐梺鍝勬閻楁捇寮婚妸銉㈡婵炲棙锚婵湧 taskItem.completionNote || '闂? }}
+                </div>
+              </li>
+            </ul>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <section v-else-if="activeTab === 'members'" class="content-panel">
+      <div class="panel-title">闂備浇顕х换鎰崲閹邦喗宕查柟鐑樻煥閸ㄦ繄鈧箍鍎遍ˇ顖滅不閿濆鐓欓梺顓ㄧ畱婢ь垶鏌?</div>
+      <p v-if="membersLoading" class="member-tip">濠电姵顔栭崰妤冩崲閹邦喖绶ら柦妯侯檧閼版寧銇勮箛鎾跺缂佲偓婢舵劖鐓熸俊顖滃帶閸斿绱掓担宄板祮闁哄瞼鍠撻埀顒佺⊕閿氬┑顔兼喘閺岀喖宕ｆ径濞炬灆閻庤娲橀懝鎹愮亙闂佸憡娲嶉弬渚€宕?..</p>
+      <p v-else-if="membersError" class="member-tip error">{{ membersError }}</p>
+      <p v-else-if="memberDisplayList.length === 0" class="member-tip">闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ娆惧殭婵鐓￠弻娑氫沪閸撗€濮囬梺璺ㄥ枂閸庣敻寮婚悢琛″亾濞戞顏呮叏閸ヮ剚鐓欓柛娆忣槸閳绘洜鈧鍣崑濠囧箖瑜斿畷鐓庘攽閸稑浜?/p>
+
+      <ul v-else class="member-list">
+        <li
+          v-for="member in memberDisplayList"
+          :key="`${member.isPending ? 'pending' : 'member'}-${member.id}-${member.requestId || ''}`"
+          class="member-item"
+          :class="{ pending: member.isPending }"
+        >
+          <img class="member-avatar" :src="memberAvatarSrc(member.avatar)" :alt="`${member.username}-avatar`" />
+          <div class="member-main">
+            <div class="row">
+              <span class="name">{{ member.username }}</span>
+              <span class="role" :class="{ pending: member.isPending }">{{ member.roleName }}</span>
+            </div>
+            <div class="desc">{{ member.roleDesc }}</div>
+            <div v-if="!member.isPending" class="request-meta">闂傚倷绀侀幉鈥愁潖缂佹ɑ鍙忛柟缁㈠枛閻鏌涢埄鍐槈缂侇偄绉归弻娑㈩敃閿濆棛顦ㄩ梺?闂?{{ formatTime(member.joinTime || '') }}</div>
+            <div v-if="member.isPending" class="request-meta">
+              闂傚倷绀侀幖顐﹀磹缂佹ɑ娅犳俊銈呮噹閸ㄥ倹鎱ㄥΟ鎸庣【鐎瑰憡绻冩穱濠囶敍濮橆剚鍊梺鍝勬閸婃繈骞?闂?{{ formatTime(pendingRequests.find((p) => p.requestId === member.requestId)?.createTime || '') }}
+            </div>
+          </div>
+          <div v-if="member.isPending" class="review-actions">
+            <button
+              class="review-btn accept"
+              type="button"
+              :disabled="processingRequestId === member.requestId"
+              @click="handleApprove(member.requestId)"
+            >
+              闂傚倷绀侀幉锟犳嚌妤ｅ啫瀚夋い鎺戝缁€?
+            </button>
+            <button
+              class="review-btn reject"
+              type="button"
+              :disabled="processingRequestId === member.requestId"
+              @click="handleReject(member.requestId)"
+            >
+              闂傚倷绀佺紞濠囧绩鏉堚晜鏆滈柣鎰版涧閸?
+            </button>
+          </div>
+          <div
+            v-else-if="currentUserCaptain && member.roleCode !== 1"
+            class="member-menu-wrap"
+          >
+            <button class="member-menu-btn" type="button" @click.stop="toggleMemberActionMenu(member.id)">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="6" cy="12" r="1.8" fill="currentColor" />
+                <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+                <circle cx="18" cy="12" r="1.8" fill="currentColor" />
+              </svg>
+            </button>
+            <div v-if="memberActionOpenUserId === member.id" class="member-menu-panel">
+              <button
+                v-for="option in roleOptions"
+                :key="option.code"
+                class="member-menu-item"
+                type="button"
+                :disabled="memberActionLoadingUserId === member.id"
+                @click.stop="handleUpdateMemberRole(member, option.code)"
+              >
+                闂備浇宕垫慨宕囩矆娴ｅ浜归柣鎰仛鐎?{{ option.label }}
+              </button>
+              <button
+                class="member-menu-item danger"
+                type="button"
+                :disabled="memberActionLoadingUserId === member.id"
+                @click.stop="handleRemoveMember(member)"
+              >
+                闂傚倸鍊搁…顒佺濡ゅ懎鍨傜憸鐗堝笒閸氳銇勯幘璺盒￠柣鎺戯躬閻擃偊宕堕妸锔绢槶闂?
+              </button>
+            </div>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+        <section v-else-if="activeTab === 'resourceDocs'" class="content-panel">
+      <div class="panel-head">
+        <div class="panel-title">闁荤姍鍐仾闁哄绻濆顒勫炊閵婏絺鍋?</div>
+        <button v-if="canUploadResourceDoc" class="create-task-list-btn" type="button" @click="openDocUploadModal(1)">
+          婵炴垶鎸搁敃锝囨閸撲焦灏庨柛鏇ㄥ墯閻忔劙鏌￠崒姘闁?
+        </button>
+      </div>
+      <p v-if="resourceDocsLoading" class="member-tip">濠殿喗绻愮徊钘夛耿椤忓牆绀夐柣妯煎劋缁佷即鎮硅鐎氼參寮搁敓鐘叉闁搞儯鍔婇埀?..</p>
+      <p v-else-if="resourceDocsError" class="member-tip error">{{ resourceDocsError }}</p>
+      <p v-else-if="resourceDocs.length === 0" class="member-tip">閻熸粎澧楅幐鍛婃櫠閻樿姹查柛灞剧⊕閿熴儵鎮硅鐎氼參寮搁敓鐘叉闁搞儯鍔婇埀?</p>
+      <ul v-else class="doc-list">
+        <li v-for="doc in resourceDocs" :key="doc.documentId" class="doc-item">
+          <div class="doc-main">
+            <a class="doc-title" :href="doc.storagePath" target="_blank" rel="noopener noreferrer">{{ doc.title }}</a>
+            <div class="doc-meta">
+              {{ doc.fileType.toUpperCase() }} 閻?{{ formatFileSize(doc.fileSize) }} 閻?婵炴垶鎸搁敃锝囨閸洘鍤€闁告粌鍟扮粣姊磠 doc.creatorName }} 閻?{{ formatTime(doc.createTime) }}
+            </div>
+          </div>
+          <div class="doc-actions">
+            <button class="icon-btn soft" type="button" @click="downloadDocument(doc)" title="婵炴垶鎸搁鍫澝归崶顒€妫橀柛銉ｅ妸閳?><span aria-hidden="true">闁?</span></button>
+            <button class="task-edit-btn" type="button" @click="openDocEditModal(doc)">闂?</button>
+            <button class="icon-btn danger" type="button" @click="openDocDeleteModal(doc)" title="闂佸憡甯炴繛鈧繛鍛叄瀵剟宕堕妸锝傚亾?><span aria-hidden="true">濡絽鍟ˉ?</span></button>
+          </div>
+        </li>
+      </ul>
+    </section>
+
+    <section v-else-if="activeTab === 'mentor'" class="content-panel">
+      <div class="panel-head">
+        <div class="panel-title">闂佸搫鎳樼紓姘跺礂濡皷鍋撻悽闈涘付缂佹せ鍋撻梺娲诲幑閸庢挳鎯侀幋鐐村劅闁规儳鐡ㄩ悗顔戒繆?</div>
+        <button v-if="canUploadAgentDoc" class="create-task-list-btn" type="button" @click="openDocUploadModal(3)">
+          婵炴垶鎸搁敃锝囨?Agent 闂佸搫鍊稿ú锕傚Υ?
+        </button>
+      </div>
+      <p v-if="agentDocsLoading" class="member-tip">濠殿喗绻愮徊钘夛耿椤忓牆绀夐柣妯煎劋缁?Agent 闂佸搫鍊稿ú锕傚Υ?..</p>
+      <p v-else-if="agentDocsError" class="member-tip error">{{ agentDocsError }}</p>
+      <p v-else-if="agentDocs.length === 0" class="member-tip">閻熸粎澧楅幐鍛婃櫠閻樿姹查柛灞剧⊕閿?Agent 闂佸搫鍊稿ú锕傚Υ?</p>
+      <ul v-else class="doc-list">
+        <li v-for="doc in agentDocs" :key="doc.documentId" class="doc-item">
+          <div class="doc-main">
+            <a class="doc-title" :href="doc.storagePath" target="_blank" rel="noopener noreferrer">{{ doc.title }}</a>
+            <div class="doc-meta">
+              {{ doc.fileType.toUpperCase() }} 閻?{{ formatFileSize(doc.fileSize) }} 閻?婵炴垶鎸搁敃锝囨閸洘鍤€闁告粌鍟扮粣姊磠 doc.creatorName }} 閻?{{ formatTime(doc.createTime) }}
+            </div>
+          </div>
+          <div class="doc-actions">
+            <button class="icon-btn soft" type="button" @click="downloadDocument(doc)" title="婵炴垶鎸搁鍫澝归崶顒€妫橀柛銉ｅ妸閳?><span aria-hidden="true">闁?</span></button>
+            <button class="task-edit-btn" type="button" @click="openDocEditModal(doc)">闂?</button>
+            <button class="icon-btn danger" type="button" @click="openDocDeleteModal(doc)" title="闂佸憡甯炴繛鈧繛鍛叄瀵剟宕堕妸锝傚亾?><span aria-hidden="true">濡絽鍟ˉ?</span></button>
+          </div>
+        </li>
+      </ul>
+      <p class="task-modal-tip">闁荤姴娲ら悺銊ノｉ幋锔芥櫖婵炲棛娅焑nt 闂佸搫鍊稿ú锕傚Υ閸屾稓顩?Captain / Leader 闂佸憡鐟崹顖滅箔閸屾稑顕遍柣姗嗗枓閸嬫挻鎷呴柨瀣伎闂佽　鍋撴鐐茬氨閸嬫挻鎷呯粙璺ㄤ患闂傚倸瀚ㄩ崐鎴﹀焵?</p>
+    </section>
+
+    <section v-else class="content-panel placeholder">
+      <div class="panel-title">{{ tabs.find((t) => t.key === activeTab)?.label }}</div>
+      <p>闂佸憡顨呯换瀣礊閺冨牆妫橀柛銉ｅ妸閳ь剙鍊歌灒闁炽儴娅曢崑銉モ槈閹炬剚鍎庣紒鏃€鎸冲濂告嚋濞堝灝鏂€闁诲海鎳撻懟顖炲级娴犲鏅柛顐秵閸氣偓闂佸憡甯楃敮妤冩暜閹绢喖绀?MongoDB闂佹寧绋戦ˇ顓㈠焵?</p>
+    </section>
+<div v-if="removeConfirmVisible" class="remove-member-mask" @click="cancelRemoveMember">
+      <section class="remove-member-modal" @click.stop>
+        <h3>缂傚倸鍊风粈渚€藝閹剁瓔鏁嬬憸鏂跨暦閻㈠壊鏁囬柣妯夸含閸撱劑妫呴銏″婵炲弶绮撻幆宀€鈧綆鍠楅悡娆撴倵濞戞顏呮叏閸ヮ剚鐓?</h3>
+        <p>
+          缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楅柡宥庡幗閸嬧晠鏌涢幘妤€鍊婚崜?          <span class="target-name">{{ pendingRemoveMember?.username || '闂備浇宕垫慨鏉懨洪姀銈呯？闁哄被鍎遍崹鍌涙叏濡寧纭剧€? }}</span>
+          缂傚倸鍊风粈渚€藝閹剁瓔鏁嬬憸鏂跨暦閻㈠壊鏁囬幒铏瑜版帗鐓欓柟顖嗗啯姣愬銈冨€曢幊姗€骞冨Ο璺ㄧ杸闁规儳澧庨濠勭磽娓氬洤鏋涚紒澶屾嚀閻ｇ兘濡烽妷搴㈡⒒閳ь剨缍嗛崜娆撳箚?
+        </p>
+        <div class="remove-member-actions">
+          <button class="remove-cancel-btn" type="button" @click="cancelRemoveMember">闂傚倷绀侀幉锟犲礉閺囩姷鐭撻柣銏㈩焾缁€鍌炴煕瀹€鈧崑娑氱不?</button>
+          <button
+            class="remove-confirm-btn"
+            type="button"
+            :disabled="!pendingRemoveMember || memberActionLoadingUserId === pendingRemoveMember.id"
+            @click="confirmRemoveMember"
+          >
+            {{ memberActionLoadingUserId === pendingRemoveMember?.id ? '婵犵數濮伴崹鐓庘枖濞戞埃鍋撳鐓庢珝妤犵偛鍟换婵嬪礃椤忎焦鐏?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洭鏌ゆ慨鎰偓妤呮儗閹剧粯鍋ｉ柛銉ｅ妼缁茬粯鎱? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="editTeamVisible" class="edit-team-mask" @click="closeEditTeamModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>缂傚倸鍊搁崐鎼佸磹瑜版帗鍋嬮柣鎰仛椤愯姤銇勯幇鈺佲偓鎾绘倿婵犲洨鍙撻柛銉ｅ妽缁€鍫ユ煟椤撶儐鍎忛懣鎰版煕閵夘垳鍒板褎褰冮湁?</h3>
+        <label class="edit-label" for="team-edit-name">闂備浇顕х换鎰崲閹邦喗宕查柟鐑樻煥閸ㄦ繄鈧箍鍎遍ˇ顖滄喆閿旈敮鍋撻獮鍨姎婵?</label>
+        <input
+          id="team-edit-name"
+          v-model="editForm.name"
+          class="edit-input"
+          type="text"
+          maxlength="50"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛崝銈嗘叏閿濆懐澧㈢紒杈ㄦ尰閹峰懐绮欏▎鍙ユ偅闂備浇顕栭崰妤€煤濠婂懎鍨?
+        />
+
+        <label class="edit-label" for="team-edit-desc">闂備浇顕х换鎰崲閹邦喗宕查柟鐑樻煥閸ㄦ繄鈧箍鍎遍ˇ顖滅不閻㈠摜鍙撻柛銉ｅ姀婢规﹢鏌?</label>
+        <textarea
+          id="team-edit-desc"
+          v-model="editForm.description"
+          class="edit-textarea"
+          maxlength="300"
+          placeholder="婵犵數鍋涢顓熸叏閹绢噮鏁勯柛銉㈡櫅閸ㄦ繃绻涢幋鐐垫噮闁崇粯妫冮弻宥堫檨闁告挻姘ㄧ划娆愬緞鐏炵浜鹃柨婵嗙凹缁ㄨ姤鎱ㄩ敐鍛ⅱ缂佽鲸鎸婚幏鍛矙濞嗗彞绱戞繝鐢靛仩瀵捇宕￠崘宸殨濞寸姴顑呴悙濠勬喐鎼达絺鍋撳顓犲弨闁哄本鐩獮鎺楀箣閻戝棙顥ｅ┑?
+        ></textarea>
+
+        <p v-if="editTeamError" class="edit-error">{{ editTeamError }}</p>
+
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="editTeamLoading" @click="closeEditTeamModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="editTeamLoading" @click="submitEditTeam">
+            {{ editTeamLoading ? '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍?..' : '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍鐟扮У閵囧嫰寮崶顬捇鏌? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskCreateVisible" class="edit-team-mask" @click="closeTaskCreateModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾句粙鏌熼幆褜鍤熸い鈺冨厴閹綊宕堕妸銉хシ濡炪値鍋侀崐鏍崲濞戙垹绠婚柧蹇ｅ亜濞咃綁鎮?</h3>
+        <label class="edit-label" for="task-list-title">濠电姷鏁搁崑鐐哄箰閹间礁绠犻幖杈剧磿閺嗭箓鏌ｉ弮鍌氬付闁告劏鍋撻梻浣规偠閸庢椽宕滈敃鍌氭辈</label>
+        <input
+          id="task-list-title"
+          v-model="taskCreateForm.title"
+          class="edit-input"
+          type="text"
+          maxlength="150"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛埀顒佺墪閻ｇ兘寮婚妷锔惧幈闂佸搫鍊搁幖顐ｆ櫠閼碱剛纾奸柡鍌涱儥閻撹偐鈧娲╃换婵嗩嚕閹绢喗鍋勯柛婵嗗娴煎洤鈹?
+        />
+
+        <label class="edit-label" for="task-list-desc">濠电姷鏁搁崑鐐哄箰閹间礁绠犻幖杈剧磿閺嗭箓鏌ｉ弮鍌氬付缂佺姷鏁婚悡顐﹀炊閵娿劌顥濋梺?</label>
+        <textarea
+          id="task-list-desc"
+          v-model="taskCreateForm.description"
+          class="edit-textarea"
+          maxlength="1000"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛埀顒佺墪閻ｇ兘寮婚妷锔惧幈闂佸搫鍊搁幖顐ｆ櫠閼碱剛纾奸柡鍌涱儥閻撹偐鈧娲╃换婵嗩嚕閹绢喗鍋勯柧姘€荤粈瀣⒑?
+        ></textarea>
+
+        <label class="edit-label" for="task-list-deadline">闂傚倷娴囬～澶愬箚鐏炲墽顩叉繝闈涱儛閺佸棙绻涢幋娆忕仼缂侇偄绉归弻娑㈩敃閿濆棛顦ㄩ梺?</label>
+        <input id="task-list-deadline" v-model="taskCreateForm.deadline" class="edit-input" type="datetime-local" />
+
+        <p v-if="taskCreateError" class="edit-error">{{ taskCreateError }}</p>
+
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="taskCreateLoading" @click="closeTaskCreateModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="taskCreateLoading" @click="submitTaskCreate">
+            {{ taskCreateLoading ? '闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾句粙鏌熼幆褜鍤熼柍?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洤鈹戦悩瀹犲缂佲偓閸℃绠鹃柟瀵稿剱閻掔晫绱? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docUploadVisible" class="edit-team-mask" @click="closeDocUploadModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>{{ docUploadForm.type === 1 ? '婵犵數鍋為崹鍫曞箰閹间焦鏅濋柨婵嗘处椤洟鏌涢幘鑼妽閻忓繐閰ｉ弻娑㈠即閵娿儱顫梺璇茬箲閸旀瑩寮婚敓鐘茬＜婵﹩鍘奸ˇ鈺呮⒑? : '婵犵數鍋為崹鍫曞箰閹间焦鏅濋柨婵嗘处椤洜绱掗崒娑欐暓ent闂傚倷绀侀幖顐﹀磹缁嬫５娲晝閸屾? }}</h3>
+        <label class="edit-label" for="doc-upload-title">闂傚倷绀侀幖顐﹀磹缁嬫５娲晝閸屾銉╂煕瀹€鈧崑娑㈠礃閳ь剟姊洪幖鐐插姶闁告搫绠撳?</label>
+        <input id="doc-upload-title" v-model="docUploadForm.title" class="edit-input" type="text" maxlength="200" placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣埖鐩顕€鏌ｆ惔顔兼灍濞ｅ洤锕よ灃閻庯綆鍓涜摫闂備胶绮悧顓犲緤妤ｅ啯鏅? />
+
+        <label class="edit-label" for="doc-upload-file">闂傚倸鍊风欢锟犲磻閸曨垁鍥箥椤旂懓浜炬慨妯稿劚婵倻鈧鍣崜鐔风暦閸洘鏅滅紒娑橆儏娴?</label>
+        <input id="doc-upload-file" class="edit-input" type="file" accept=".pdf,.docx,.md,.txt" @change="handleDocFileChange" />
+        <p class="task-modal-tip">婵犵數鍋涢顓熸叏閹绢喖绠犻煫鍥ㄧ☉閺嬩焦銇勯弴妤€浜惧Δ?pdf / docx / md / txt</p>
+
+        <p v-if="docUploadError" class="edit-error">{{ docUploadError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="docUploadLoading" @click="closeDocUploadModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="docUploadLoading" @click="submitDocUpload">
+            {{ docUploadLoading ? '婵犵數鍋為崹鍫曞箰閹间焦鏅濋柨婵嗘处椤洟鏌ら崫銉︽毄闁?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洨绱撴担璇＄劷闁崇粯鏌ㄩ埞鎴︽偐鏉堫偄鍘￠梺? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docEditVisible" class="edit-team-mask" @click="closeDocEditModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>婵犵數鍎戠徊钘壝归崒鐐茬獥婵°倕鎳庨弸浣糕攽閸屾粠鐒炬俊顐ｏ耿閺屾盯濡烽敐鍛╅梺閫炲苯澧柛濠傜仢椤曪絾绂掔€ｎ亞鍊炲銈嗗笒椤︽澘袙?</h3>
+        <label class="edit-label" for="doc-edit-title">闂傚倷绀侀幖顐﹀磹缁嬫５娲晝閸屾銉╂煕瀹€鈧崑娑㈠礃閳ь剟姊洪幖鐐插姶闁告搫绠撳?</label>
+        <input id="doc-edit-title" v-model="docEditForm.title" class="edit-input" type="text" maxlength="200" placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣埖鐩顕€鏌ｆ惔顔兼灍濞ｅ洤锕よ灃閻庯綆鍓涜摫闂備胶绮悧顓犲緤妤ｅ啯鏅? />
+        <p v-if="docEditError" class="edit-error">{{ docEditError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="docEditLoading" @click="closeDocEditModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="docEditLoading" @click="submitDocEdit">
+            {{ docEditLoading ? '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍?..' : '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍鐟扮У閵囧嫰寮崶顬捇鏌? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="docDeleteVisible" class="remove-member-mask" @click="closeDocDeleteModal">
+      <section class="remove-member-modal" @click.stop>
+        <h3>闂傚倷绀侀幉锛勬暜閻愬绠鹃柍褜鍓氱换娑㈠川椤撱垹寮伴悗娈垮櫘閸撶喎鐣烽崼鏇炍╅柨婵嗗€告禍?</h3>
+        <p>缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楅柡宥庡幗閸嬧晛螖閿濆懎鏆欑紒鈧崱娑欑厽婵☆垵鍋愮敮娑㈡煟濠靛牆鏋涢柡宀嬬節瀹曟帒顫濋鐑嗘П闂?<span class="target-name">{{ pendingDeleteDoc?.title || '闂備浇宕垫慨鏉懨洪姀銈呯？闁哄被鍎遍崙鐘绘煕閹扮數鍘涙繛? }}</span> 闂傚倷绀侀幉锛勫枈瀹ュ鈧啴骞囬绛嬫綗</p>
+        <div class="remove-member-actions">
+          <button class="remove-cancel-btn" type="button" :disabled="docDeleteLoading" @click="closeDocDeleteModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="remove-confirm-btn" type="button" :disabled="docDeleteLoading" @click="confirmDocDelete">
+            {{ docDeleteLoading ? '闂傚倷绀侀幉锛勬暜閻愬绠鹃柍褜鍓氱换娑㈠川椤撶儐鍔夌紓?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洤鈹戦悩瀹犲缂佲偓閸℃稒鐓熸俊顖濆亹鐢盯鏌? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskItemCreateVisible" class="edit-team-mask" @click="closeTaskItemCreateModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>闂傚倷绀侀幖顐﹀磹閻熼偊鐔嗘慨妞诲亾鐠侯垶鏌涢幇銊︽珖妞も晝鍏橀幃褰掑炊閵娿儳绁峰?</h3>
+        <p class="task-modal-tip">
+          闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ铏规勾闁逞屽墯鐢€崇暦閵娾晩鏁囬柣鎰問濡插綊姊绘担鐟邦嚋缂佸甯￠、妤冪博?taskItemCreateForm.taskListTitle }} 闂?闂傚倷绀侀幖顐︽偋閸愵喖纾婚柟鍓х帛閻撴盯鏌涘☉鍗炴珮闁稿孩顑廘闂傚倷鐒︾€笛呯矙閹烘鏁嗙紒?formatTime(taskItemCreateForm.taskListDeadline) }}
+        </p>
+        <label class="edit-label" for="task-item-desc">婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤斿矂妫呴銏″闁煎綊绠栭幃?</label>
+        <textarea
+          id="task-item-desc"
+          v-model="taskItemCreateForm.description"
+          class="edit-textarea"
+          maxlength="500"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛埀顒佺墪閻ｇ兘寮婚妷锔惧幈闂佸搫鍊搁幖顐ｆ櫠閼碱兘鍋撳▓鍨灍閻庣瑳鍐剧劷?
+        ></textarea>
+
+        <label class="edit-label" for="task-item-deadline">婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柣鎾虫捣椤撳搫顪冮妶鍛闁瑰嘲顑夊畷婊勩偅閸愨晝鍘搁梺鍛婂姂閸斿酣宕洪敐鍡曠箚</label>
+        <input id="task-item-deadline" v-model="taskItemCreateForm.deadline" class="edit-input" type="datetime-local" />
+
+        <p v-if="taskItemCreateError" class="edit-error">{{ taskItemCreateError }}</p>
+
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="taskItemCreateLoading" @click="closeTaskItemCreateModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="taskItemCreateLoading" @click="submitTaskItemCreate">
+            {{ taskItemCreateLoading ? '闂傚倷绀侀幉锛勬暜濡ゅ啰鐭欓柟瀵稿Х绾句粙鏌熼幆褜鍤熼柍?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洤鈹戦悩瀹犲缂佲偓閸℃绠鹃柟瀵稿剱閻掔晫绱? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskListEditVisible" class="edit-team-mask" @click="closeTaskListEditModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>婵犵數鍎戠徊钘壝归崒鐐茬獥婵°倕鎳庨弸渚€鏌涜箛姘汗妞も晝鍏橀幃褰掑炊閵娿儳绁峰銈庡亖閸婃牜鎹㈠☉銏犵闁惧浚鍋勫▍锝夋倵?</h3>
+        <label class="edit-label" for="task-list-edit-title">濠电姷鏁搁崑鐐哄箰閹间礁绠犻幖杈剧磿閺嗭箓鏌ｉ弮鍌氬付闁告劏鍋撻梻浣规偠閸庢椽宕滈敃鍌氭辈</label>
+        <input
+          id="task-list-edit-title"
+          v-model="taskListEditForm.title"
+          class="edit-input"
+          type="text"
+          maxlength="150"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛埀顒佺墪閻ｇ兘寮婚妷锔惧幈闂佸搫鍊搁幖顐ｆ櫠閼碱剛纾奸柡鍌涱儥閻撹偐鈧娲╃换婵嗩嚕閹绢喗鍋勯柛婵嗗娴煎洤鈹?
+        />
+
+        <label class="edit-label" for="task-list-edit-desc">濠电姷鏁搁崑鐐哄箰閹间礁绠犻幖杈剧磿閺嗭箓鏌ｉ弮鍌氬付缂佺姷鏁婚悡顐﹀炊閵娿劌顥濋梺?</label>
+        <textarea
+          id="task-list-edit-desc"
+          v-model="taskListEditForm.description"
+          class="edit-textarea"
+          maxlength="1000"
+          placeholder="闂備浇宕垫慨鏉懨洪妸鈺佽摕濠㈣泛鏈鑺ャ亜閹惧崬鐏╃紒鈧崒鐐寸厪濠㈣泛鐗嗛埀顒佺墪閻ｇ兘寮婚妷锔惧幈闂佸搫鍊搁幖顐ｆ櫠閼碱剛纾奸柡鍌涱儥閻撹偐鈧娲╃换婵嗩嚕閹绢喗鍋勯柧姘€荤粈瀣⒑?
+        ></textarea>
+
+        <label class="edit-label" for="task-list-edit-deadline">闂傚倷娴囬～澶愬箚鐏炲墽顩叉繝闈涱儛閺佸棙绻涢幋娆忕仼缂侇偄绉归弻娑㈩敃閿濆棛顦ㄩ梺?</label>
+        <input id="task-list-edit-deadline" v-model="taskListEditForm.deadline" class="edit-input" type="datetime-local" />
+
+        <p v-if="taskListEditError" class="edit-error">{{ taskListEditError }}</p>
+
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="taskListEditLoading" @click="closeTaskListEditModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="taskListEditLoading" @click="submitTaskListEdit">
+            {{ taskListEditLoading ? '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍?..' : '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍鐟扮У閵囧嫰寮崶顬捇鏌? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskListDeleteVisible" class="remove-member-mask" @click="closeTaskListDeleteModal">
+      <section class="remove-member-modal" @click.stop>
+        <h3>闂傚倷绀侀幉锛勬暜閻愬绠鹃柍褜鍓氱换娑㈠川椤撶儐鍔夌紓浣稿€圭敮鐐哄箯閻樿绠甸柟鐑樼箖閸栫姵绻濋悽闈涗沪闁瑰憡鎮傞獮濠冩償閿涘嫭娈?</h3>
+        <p>
+          缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楅柡宥庡幗閸嬧晛螖閿濆懎鏆欑紒鈧崱娑欑厽婵☆垵鍋愮敮娑㈡煟濠靛牆鏋戠紒缁樼洴楠炴﹢鎼归銏☆仩闁?
+          <span class="target-name">{{ pendingDeleteTaskList?.title || '闂備浇宕垫慨鏉懨洪姀銈呯？闁肩⒈鍓涢崡姘攽閻樺疇澹樼痪顓涘亾? }}</span>
+          闂傚倷绀侀幉锛勫枈瀹ュ鈧啴骞囬绛嬫綗闂佹眹鍨归悘姘扁偓姘哺閺屾洘寰勫☉姗嗘喘濡炪倕绻戦幃鍌炲蓟濞戞鏃€鎷呴崷顓ㄧ幢缂傚倷鐒﹂〃鍛村箠韫囨洜鐭夐柟鐑樻⒐鐎氭岸鏌熺紒妯轰刊婵炶壈娅曠换娑㈠箣閻愮补鎷婚梺鍝ュТ缁夎泛危閹扮増鍋嬮柛顐熸噰閺嬫牠姊洪柅鐐茶嫰婢ф挳鏌ｅ☉鍗炴灓闁圭懓瀚板畷顐﹀礋椤撴繃鍋呴梻鍌氬€搁崐鍝モ偓姘ュ姂瀹曟劙骞嬮敃鈧悞?        </p>
+        <div class="remove-member-actions">
+          <button class="remove-cancel-btn" type="button" :disabled="taskListDeleteLoading" @click="closeTaskListDeleteModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="remove-confirm-btn" type="button" :disabled="taskListDeleteLoading" @click="confirmTaskListDelete">
+            {{ taskListDeleteLoading ? '闂傚倷绀侀幉锛勬暜閻愬绠鹃柍褜鍓氱换娑㈠川椤撶儐鍔夌紓?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洤鈹戦悩瀹犲缂佲偓閸℃稒鐓熸俊顖濆亹鐢盯鏌? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskAssignVisible" class="edit-team-mask" @click="closeTaskAssignModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>婵犵數鍋涢悺銊у垝瀹€鍕妞ゆ劧绠戠粻鐔兼煙閹増顥夌紒鈧崱娑欑厱闁斥晛鍟伴埥澶愭偨?</h3>
+        <p class="task-modal-tip">婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柛蹇撳悑濞呮牕鈹戦鐣岀畼濞?taskAssignForm.taskDesc }}</p>
+
+        <label class="edit-label">闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ铏逛粵閻庢艾顭烽弻锝夊籍閸パ冩優闂佺粯鎸婚崹鐢告箒</label>
+        <div class="task-assignee-actions modal">
+          <span v-if="taskAssignAssignees.length === 0" class="task-assignee-empty">闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ鎸庣彧濞存嚎鍊栨穱濠囶敍濠靛棗鎯炲┑顔硷躬缁犳牠寮婚敓鐘查唶婵犲灚鍔栨瓏缂傚倷璁查崑鎾绘倵閿濆骸澧悗姘煼閺屻劌鈹戦崱妤婁痪闂?</span>
+          <div
+            v-for="assignee in taskAssignAssignees"
+            :key="`modal-${taskAssignForm.taskId}-${assignee.userId}`"
+            class="task-assignee-chip"
+          >
+            <span class="task-assignee-chip-name">{{ assignee.username }}</span>
+            <button
+              class="task-assignee-chip-close"
+              type="button"
+              :disabled="taskAssignLoading"
+              @click="handleRemoveTaskAssigneeInModal(assignee.userId)"
+            >
+              闂?
+            </button>
+          </div>
+        </div>
+
+        <label class="edit-label" for="task-assign-member">濠电姷鏁搁崕鎴犵礊閳ь剚銇勯弴鍡楀閸欏繘鏌ｉ幇顔芥毄缁炬儳銈搁弻娑㈠即閵娿儰绨奸梺?</label>
+        <select id="task-assign-member" v-model="taskAssignForm.assigneeUserId" class="edit-input">
+          <option value="">闂備浇宕垫慨鏉懨洪妸鈺佺婵せ鍋撻柛鈹惧亾濡炪倖宸婚崑鎾淬亜閿旇棄顥嬮柍褜鍓氶崫搴ㄥ礉鎼淬劌绠熼柣妤€鐗婃刊鎾煟閻斿搫顣肩紓宥咁樀濮婃椽宕ㄦ繝鍐ｆ嫽婵犳鍠栭崲鏌ュ煝閹捐绠ｉ柨鏇楀亾缂佺媴缍侀弻鐔兼焽閿曗偓婢ь垶鏌?/option>
+          <option v-for="member in assignableMembers" :key="member.userId" :value="member.userId">
+            {{ member.username }}闂傚倷鐒︾€笛呯矙閹存繍鐔嗛柡?member.roleName }}闂?          </option>
+        </select>
+
+        <p v-if="taskAssignError" class="edit-error">{{ taskAssignError }}</p>
+
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="taskAssignLoading" @click="closeTaskAssignModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="taskAssignLoading" @click="handleAddTaskAssignee">
+            {{ taskAssignLoading ? '婵犵數濮伴崹鐓庘枖濞戞埃鍋撳鐓庢珝妤犵偛鍟换婵嬪礃椤忎焦鐏?..' : '闂傚倷绀侀幖顐﹀磹閻熼偊鐔嗘慨妞诲亾鐠侯垶鏌涢幇鍏哥凹閻庢艾顭烽弻锝夊籍閸パ冩優闂佺粯鎸婚崹鐢告箒? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="selfRoleEditVisible" class="edit-team-mask" @click="cancelEditSelfRoleDesc">
+      <section class="edit-team-modal" @click.stop>
+        <h3>婵犵數鍎戠徊钘壝归崒鐐茬獥婵°倕鎳庨弸渚€鏌ゅù瀣珕闁哥姴妫濋弻鐔兼倻濡崵顦ュ銈冨劚缁绘﹢寮婚悢鐑樺珰闁肩⒈鍓涢鎴︽⒑?</h3>
+        <label class="edit-label" for="self-role-desc-modal">闂備浇宕甸崰鎰版偡閿旂偓鏆滈柣鏂挎憸閻濊泛鈹戦悩鍙夋悙缂佺姷鏁婚悡顐﹀炊閵娿劌顥濋梺?</label>
+        <textarea
+          id="self-role-desc-modal"
+          v-model="selfRoleDescEdit"
+          class="edit-textarea"
+          maxlength="80"
+          placeholder="婵犵數濞€濞佳囁囨禒瀣；闁告洦鍨伴悿顕€鏌熼幆褏鎽犲┑顖涙尦閺岋絽螣閾忛€涚驳闂佷紮缍€娴滎剛妲愰幘瀛樺缂佸顑欐禒濂告⒑閸濄儱浠﹂柟鍛婂▕楠炲﹪寮撮悙鍨畷闂佸憡鍔︽禍鐐哄储椤掑嫭鈷戠痪顓炴媼閸ゆ瑧绱掔紒姗嗘疁鐎?
+        ></textarea>
+        <p v-if="selfRoleError" class="edit-error">{{ selfRoleError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="selfRoleSaving" @click="cancelEditSelfRoleDesc">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="selfRoleSaving" @click="submitSelfRoleDesc">
+            {{ selfRoleSaving ? '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵犲繐顩柍?..' : '婵犵數鍎戠徊钘壝洪敂鐐床闁稿瞼鍋為崑銈夋煏婵炵偓娅呯紒鐘垫暬閻擃偊宕堕妸銊ヮ棟闂? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="taskCompleteVisible" class="edit-team-mask task-complete-mask" @click="closeTaskCompleteModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洭鏌ゆ慨鎰偓鎰板磻閹剧粯鍋￠柣妤€鐗婇幏閬嶆⒑閹肩偛濡界痪鏉跨Ф缁骞掗弮鈧€氭岸鏌熺紒妯轰刊婵?</h3>
+        <p class="task-modal-tip">婵犵數鍋涢顓熸叏妤ｅ喚鏁嬬憸搴ㄥ箞閵娾晜鍋勯柛蹇撳悑濞呮牕鈹戦鐣岀畼濞?taskCompleteForm.taskDesc }}</p>
+        <label class="edit-label" for="task-completion-note">闂備浇顕уù鐑藉箠閹捐瀚夋い鎺戝閸ㄥ倹鎱ㄥ鍡楀箹缂佸墎鍋ら弻娑㈠Ψ閿濆懎顬夐梺鍝勬閻楁捇寮婚妸銉㈡婵☆垳鍘ч。娲偡濠婂懎顣奸柣鎿勭節瀵宕ㄩ鑲╃獮濠电偞鍨跺銊┧?</label>
+        <textarea
+          id="task-completion-note"
+          v-model="taskCompleteForm.completionNote"
+          class="edit-textarea"
+          maxlength="100"
+          placeholder="闂傚倷绀侀幉锟犳偡椤栫偛鍨傚ù鐓庣摠閺呮煡鏌ｉ幇顒佹儓缂佲偓閸愨晝绠鹃柛鈩冾殔椤掋垻鈧娲橀悡锟犲蓟濞戙垹妫橀悶娑掆偓鍏呭閻庤娲栧ú锕€鈻撻鈧娲偡閹殿喗鎲奸梺鍛婃⒐閿曘垽銆佸璺虹厸闁告侗鍘煎?
+        ></textarea>
+        <p v-if="taskCompleteError" class="edit-error">{{ taskCompleteError }}</p>
+        <div class="edit-team-actions">
+          <button class="edit-cancel-btn" type="button" :disabled="taskCompleteLoading" @click="closeTaskCompleteModal">闂傚倷绀侀幉锟犳偡閿曞倹鍋嬫俊銈呭暟閻?</button>
+          <button class="edit-confirm-btn" type="button" :disabled="taskCompleteLoading" @click="submitTaskComplete">
+            {{ taskCompleteLoading ? '闂傚倷绀佸﹢杈╁垝椤栫偛绀夐柟鐑樺焾濞尖晠鏌ㄩ弮鍌涙珪闁?..' : '缂傚倷鑳堕搹搴ㄥ矗鎼淬劌绐楁繛鎴欏焺閺佸洭鏌ゆ慨鎰偓鎰板磻閹剧粯鍋￠柣妤€鐗婇幏閬嶆⒑? }}
+          </button>
+        </div>
+      </section>
+    </div>
+
+    <div v-if="myTodoVisible" class="edit-team-mask" @click="closeMyTodoModal">
+      <section class="edit-team-modal" @click.stop>
+        <h3>闂傚倷鑳堕幊鎾绘偤閵娾晛鍨傞柣鐔稿閺嬫棃鏌熺€涙绠ラ柛銈嗩殜閺屾稑鈽夐崡鐐茬濡?</h3>
+        <p v-if="myTodoTasks.length === 0" class="task-modal-tip">闂佽崵鍠愮划搴㈡櫠濡ゅ懎绠伴柛娑橈攻濞呯娀鏌ｅΟ鑽ゃ偞闁哄矉绠撻弻宥夊煛娴ｅ憡娈茬紓浣哄У鐢繝寮婚敓鐘查唶妞ゆ劧绱曢惄搴ㄦ⒑娴兼瑧绉甸柛鎾跺枛閻涱喚鈧綆鍠栫粻娑欍亜閺冨倹娅曢柡鍡欏У缁绘稓鈧數顭堥瀷濡炪倖娉﹂崟顒€寮块梺缁樻煥閸氬寮查鍌楀亾閸忓浜鹃梺閫炲苯澧存鐐差儐椤︾増鎯旈敐鍥风床婵＄偑鍊栭幐鑽ゆ崲閸曨厾涓嶅ù鐘差儐閻撴瑩姊婚埀顒勫箛椤斿墽鎽岀紓?</p>
+        <ul v-else class="my-todo-list">
+          <li v-for="todo in myTodoTasks" :key="todo.taskId" class="my-todo-item">
+            <button class="task-complete-check" type="button" @click="openTaskCompleteModal(todo.taskId, todo.description)">
+              <span></span>
+            </button>
+            <div class="my-todo-main">
+              <div class="my-todo-desc">{{ todo.description }}</div>
+              <div class="my-todo-meta">{{ todo.teamTaskListTitle }} 闂?DDL {{ formatTime(todo.deadline) }}</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</template>
