@@ -353,3 +353,138 @@ export async function fetchTeamDocumentDownloadUrl(documentId: string): Promise<
   const result = await request<string>('/document/download-url', { documentId }, true)
   return result.data
 }
+
+export interface MentorChatStreamRequest {
+  message: string
+  teamId?: string
+  sessionId?: string
+}
+
+export interface MentorSessionItem {
+  sessionId: string
+  title: string
+  status: string
+  messageCount: number
+  lastMessageAt: string
+}
+
+export interface MentorSessionListResponse {
+  sessions: MentorSessionItem[]
+}
+
+export interface MentorHistoryMessage {
+  messageId: string
+  senderType: string
+  messageType: string
+  content: string
+  createdAt: string
+}
+
+export interface MentorHistoryResponse {
+  sessionId: string
+  messages: MentorHistoryMessage[]
+}
+
+export interface MentorSidebarDocItem {
+  documentId: string
+  title: string
+  creatorName: string
+  dateLabel: string
+  fileType: string
+}
+
+export interface MentorSidebarDocResponse {
+  documents: MentorSidebarDocItem[]
+}
+
+export async function fetchMentorSessionList(teamId: string): Promise<MentorSessionListResponse> {
+  const result = await request<MentorSessionListResponse>('/ai/mentor/session/list', { teamId }, true)
+  return result.data
+}
+
+export async function createMentorSession(teamId: string, title?: string): Promise<MentorSessionItem> {
+  const result = await request<MentorSessionItem>('/ai/mentor/session/create', { teamId, title }, true)
+  return result.data
+}
+
+export async function fetchMentorHistory(sessionId: string): Promise<MentorHistoryResponse> {
+  const result = await request<MentorHistoryResponse>('/ai/mentor/history', { sessionId }, true)
+  return result.data
+}
+
+export async function fetchMentorSidebarDocs(teamId: string, type: number): Promise<MentorSidebarDocResponse> {
+  const result = await request<MentorSidebarDocResponse>('/document/mentor-sidebar-list', { teamId, type }, true)
+  return result.data
+}
+
+export async function streamMentorChat(
+  payload: MentorChatStreamRequest,
+  onChunk: (chunk: string) => void,
+  onMeta?: (meta: { sessionId?: string; traceId?: string }) => void,
+): Promise<void> {
+  const token = sessionStorage.getItem('teamup_token')
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  }
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  const response = await fetch(`${API_BASE}/ai/mentor/stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      message: payload.message,
+      teamId: payload.teamId ?? null,
+      sessionId: payload.sessionId ?? null,
+    }),
+  })
+
+  if (!response.ok || !response.body) {
+    throw new ApiError('AI 对话请求失败', response.status)
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+  let buffer = ''
+  let done = false
+
+  while (!done) {
+    const readResult = await reader.read()
+    done = readResult.done
+    buffer += decoder.decode(readResult.value || new Uint8Array(), { stream: !done })
+
+    const events = buffer.split(/\r?\n\r?\n/)
+    buffer = events.pop() ?? ''
+
+    for (const eventBlock of events) {
+      const lines = eventBlock.split(/\r?\n/)
+      let eventName = ''
+      const dataLines: string[] = []
+
+      for (const line of lines) {
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim()
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trimStart())
+        }
+      }
+      const data = dataLines.join('\n')
+
+      if (eventName === 'chunk' && data) {
+        onChunk(data)
+      }
+      if (eventName === 'meta' && data && onMeta) {
+        try {
+          onMeta(JSON.parse(data) as { sessionId?: string; traceId?: string })
+        } catch {
+          // ignore invalid meta payload
+        }
+      }
+      if (eventName === 'done') {
+        return
+      }
+    }
+  }
+}

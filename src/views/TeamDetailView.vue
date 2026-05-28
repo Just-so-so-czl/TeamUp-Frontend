@@ -1127,15 +1127,7 @@ const confirmRemoveMember = async () => {
 }
 
 const goBack = async () => {
-  try {
-    if (window.history.length > 1) {
-      await router.back()
-    } else {
-      await router.push('/dashboard')
-    }
-  } catch {
-    await router.push('/dashboard')
-  }
+  await router.push('/dashboard')
 }
 
 const handleClickOutside = (event: MouseEvent) => {
