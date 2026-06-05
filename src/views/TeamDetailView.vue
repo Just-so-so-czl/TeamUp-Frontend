@@ -14,6 +14,7 @@ import {
   assignTask,
   claimTask,
   completeTask,
+  createCollabDocument,
   createTask,
   createTeamTaskList,
   deleteTeamTaskList,
@@ -154,16 +155,17 @@ const taskListDeleteVisible = ref(false)
 const taskListDeleteLoading = ref(false)
 const pendingDeleteTaskList = ref<{ taskListId: string; title: string } | null>(null)
 const resourceDocs = ref<TeamDocumentItem[]>([])
-const agentDocs = ref<TeamDocumentItem[]>([])
+const collabDocs = ref<TeamDocumentItem[]>([])
 const resourceDocsLoading = ref(false)
 const resourceDocsError = ref('')
-const agentDocsLoading = ref(false)
-const agentDocsError = ref('')
+const collabDocsLoading = ref(false)
+const collabDocsError = ref('')
 const canUploadResourceDoc = ref(false)
-const canUploadAgentDoc = ref(false)
+const canUploadCollabDoc = ref(false)
 const docUploadVisible = ref(false)
 const docUploadLoading = ref(false)
 const docUploadError = ref('')
+const docUploadFileInputRef = ref<HTMLInputElement | null>(null)
 const docUploadForm = ref({
   type: 1,
   title: '',
@@ -403,20 +405,20 @@ const loadResourceDocs = async () => {
   }
 }
 
-const loadAgentDocs = async () => {
+const loadCollabDocs = async () => {
   if (!teamId.value) {
     return
   }
-  agentDocsLoading.value = true
-  agentDocsError.value = ''
+  collabDocsLoading.value = true
+  collabDocsError.value = ''
   try {
-    const res = await fetchTeamDocuments(teamId.value, 3)
-    agentDocs.value = res.documents || []
-    canUploadAgentDoc.value = !!res.currentUserCanUpload
+    const res = await fetchTeamDocuments(teamId.value, 2)
+    collabDocs.value = res.documents || []
+    canUploadCollabDoc.value = !!res.currentUserCanUpload
   } catch (error) {
-    agentDocsError.value = error instanceof Error ? error.message : '加载Agent文档失败'
+    collabDocsError.value = error instanceof Error ? error.message : '加载协作文档失败'
   } finally {
-    agentDocsLoading.value = false
+    collabDocsLoading.value = false
   }
 }
 
@@ -434,6 +436,10 @@ const handleTabClick = async (tabKey: TabKey) => {
     await loadResourceDocs()
     return
   }
+  if (tabKey === 'collabDocs') {
+    await loadCollabDocs()
+    return
+  }
 }
 
 const formatFileSize = (size: number) => {
@@ -447,6 +453,42 @@ const formatFileSize = (size: number) => {
     return `${(size / 1024).toFixed(1)}KB`
   }
   return `${(size / (1024 * 1024)).toFixed(1)}MB`
+}
+
+const collabDocIconClass = (fileType: string) => {
+  const normalized = (fileType || '').toLowerCase()
+  if (normalized.includes('doc')) return 'docx'
+  if (normalized.includes('xls')) return 'xlsx'
+  if (normalized.includes('ppt')) return 'pptx'
+  if (normalized.includes('pdf')) return 'pdf'
+  return 'txt'
+}
+
+const collabDocAvatarSrc = (avatar?: number) => memberAvatarSrc(avatar)
+
+const isDocumentContentReady = (doc: TeamDocumentItem) => !!(doc.storagePath || '').trim()
+
+const getCollabDocMetaText = (doc: TeamDocumentItem) => {
+  if (!isDocumentContentReady(doc)) {
+    return '内容暂未初始化'
+  }
+  return `${doc.fileType.toUpperCase()} · ${formatFileSize(doc.fileSize)}`
+}
+
+const previewDocument = async (doc: TeamDocumentItem) => {
+  const documentId = (doc.documentId || '').trim()
+  if (!documentId) {
+    return
+  }
+  try {
+    const url = await fetchTeamDocumentDownloadUrl(documentId)
+    if (!url) {
+      return
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  } catch (error) {
+    collabDocsError.value = error instanceof Error ? error.message : '打开协作文档失败'
+  }
 }
 
 const downloadDocument = async (doc: TeamDocumentItem) => {
@@ -471,12 +513,12 @@ const downloadDocument = async (doc: TeamDocumentItem) => {
     if (doc.type === 1) {
       resourceDocsError.value = msg
     } else {
-      agentDocsError.value = msg
+      collabDocsError.value = msg
     }
   }
 }
 
-const openDocUploadModal = (type: 1 | 3) => {
+const openDocUploadModal = (type: 1 | 2) => {
   docUploadForm.value = {
     type,
     title: '',
@@ -497,6 +539,7 @@ const handleDocFileChange = (event: Event) => {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
   docUploadForm.value.file = file || null
+  docUploadError.value = ''
 }
 
 const submitDocUpload = async () => {
@@ -504,24 +547,28 @@ const submitDocUpload = async () => {
     return
   }
   const title = docUploadForm.value.title.trim()
-  const file = docUploadForm.value.file
   if (!title || title.length > 200) {
     docUploadError.value = '文档标题不能为空且不能超过200字符'
-    return
-  }
-  if (!file) {
-    docUploadError.value = '请选择要上传的文件'
     return
   }
   docUploadLoading.value = true
   docUploadError.value = ''
   try {
-    await uploadTeamDocument(teamId.value, title, docUploadForm.value.type, file)
+    if (docUploadForm.value.type === 1) {
+      const file = docUploadForm.value.file || docUploadFileInputRef.value?.files?.[0] || null
+      if (!file) {
+        docUploadError.value = '请选择要上传的文件'
+        return
+      }
+      await uploadTeamDocument(teamId.value, title, docUploadForm.value.type, file)
+    } else {
+      await createCollabDocument(teamId.value, title)
+    }
     docUploadVisible.value = false
     if (docUploadForm.value.type === 1) {
       await loadResourceDocs()
     } else {
-      await loadAgentDocs()
+      await loadCollabDocs()
     }
   } catch (error) {
     docUploadError.value = error instanceof Error ? error.message : '上传文档失败'
@@ -565,7 +612,7 @@ const submitDocEdit = async () => {
     if (docEditForm.value.type === 1) {
       await loadResourceDocs()
     } else {
-      await loadAgentDocs()
+      await loadCollabDocs()
     }
   } catch (error) {
     docEditError.value = error instanceof Error ? error.message : '修改文档失败'
@@ -605,14 +652,14 @@ const confirmDocDelete = async () => {
     if (target.type === 1) {
       await loadResourceDocs()
     } else {
-      await loadAgentDocs()
+      await loadCollabDocs()
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : '删除文档失败'
     if (target.type === 1) {
       resourceDocsError.value = msg
     } else {
-      agentDocsError.value = msg
+      collabDocsError.value = msg
     }
   } finally {
     docDeleteLoading.value = false
@@ -1149,7 +1196,7 @@ onMounted(async () => {
   ) {
     activeTab.value = tabFromQuery
   }
-  await Promise.all([loadTeamDetail(), loadMembersManage(), loadTaskLists(), loadResourceDocs(), loadAgentDocs()])
+  await Promise.all([loadTeamDetail(), loadMembersManage(), loadTaskLists(), loadResourceDocs(), loadCollabDocs()])
 })
 
 onBeforeUnmount(() => {
@@ -1456,37 +1503,92 @@ onBeforeUnmount(() => {
       </ul>
     </section>
 
-    <section v-else-if="activeTab === 'mentor'" class="content-panel">
+    <section v-else-if="activeTab === 'collabDocs'" class="content-panel">
       <div class="panel-head">
-        <div class="panel-title">智能导师知识库文档</div>
+        <div class="panel-title">协作文档</div>
         <button
-          v-if="canUploadAgentDoc"
+          v-if="canUploadCollabDoc"
           class="create-task-list-btn"
           type="button"
-          @click="openDocUploadModal(3)"
+          @click="openDocUploadModal(2)"
         >
-          上传Agent文档
+          创建协作文档
         </button>
       </div>
-      <p v-if="agentDocsLoading" class="member-tip">正在加载Agent文档...</p>
-      <p v-else-if="agentDocsError" class="member-tip error">{{ agentDocsError }}</p>
-      <p v-else-if="agentDocs.length === 0" class="member-tip">当前暂无Agent文档</p>
-      <ul v-else class="doc-list">
-        <li v-for="doc in agentDocs" :key="doc.documentId" class="doc-item">
-          <div class="doc-main">
-            <a class="doc-title" :href="doc.storagePath" target="_blank" rel="noopener noreferrer">{{ doc.title }}</a>
-            <div class="doc-meta">
-              {{ doc.fileType.toUpperCase() }} · {{ formatFileSize(doc.fileSize) }} · 上传者：{{ doc.creatorName }} · {{ formatTime(doc.createTime) }}
-            </div>
-          </div>
-          <div class="doc-actions">
-            <button class="task-edit-btn doc-download-btn" type="button" @click="downloadDocument(doc)">↓</button>
-            <button class="task-edit-btn" type="button" @click="openDocEditModal(doc)">✍</button>
-            <button class="task-delete-btn" type="button" @click="openDocDeleteModal(doc)">−</button>
-          </div>
-        </li>
-      </ul>
-      <p class="task-modal-tip">说明：Agent文档仅 Captain / Leader 可上传、修改、删除。</p>
+      <p v-if="collabDocsLoading" class="member-tip">正在加载协作文档...</p>
+      <p v-else-if="collabDocsError" class="member-tip error">{{ collabDocsError }}</p>
+      <p v-else-if="collabDocs.length === 0" class="member-tip">当前暂无协作文档</p>
+      <div v-else class="collab-docs-wrap">
+        <table class="docs-table">
+          <thead>
+            <tr>
+              <th class="th-name">文档名称</th>
+              <th class="th-creator">创建者</th>
+                <th class="th-time">创建 / 更新</th>
+              <th class="th-actions">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="doc in collabDocs" :key="doc.documentId">
+              <td>
+                <div class="collab-doc-info">
+                  <div class="collab-doc-icon-wrapper" :class="collabDocIconClass(doc.fileType)">
+                    <svg viewBox="0 0 24 24" class="doc-icon">
+                      <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                    </svg>
+                  </div>
+                  <div class="collab-doc-meta">
+                    <span class="collab-doc-name">{{ doc.title }}</span>
+                    <span class="collab-doc-size">{{ getCollabDocMetaText(doc) }}</span>
+                  </div>
+                </div>
+              </td>
+
+                <td>
+                  <div class="collab-creator-info">
+                    <img class="collab-avatar" :src="collabDocAvatarSrc(doc.creatorAvatar)" :alt="`${doc.creatorName} 的头像`" />
+                    <span class="collab-creator-name">{{ doc.creatorName }}</span>
+                  </div>
+                </td>
+
+                <td class="collab-time-cell">
+                  <div class="collab-time-main">{{ formatTime(doc.createTime) }}</div>
+                  <div class="collab-time-sub">更新：{{ formatTime(doc.updateTime) }}</div>
+                </td>
+
+              <td>
+                <div class="collab-action-buttons">
+                  <button
+                    class="collab-btn collab-btn-enter"
+                    type="button"
+                    :title="isDocumentContentReady(doc) ? '查看' : '内容暂未接入'"
+                    :disabled="!isDocumentContentReady(doc)"
+                    @click="previewDocument(doc)"
+                  >
+                    <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                  </button>
+                  <button
+                    class="collab-btn collab-btn-download"
+                    type="button"
+                    :title="isDocumentContentReady(doc) ? '下载' : '内容暂未接入'"
+                    :disabled="!isDocumentContentReady(doc)"
+                    @click="downloadDocument(doc)"
+                  >
+                    <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                  </button>
+                  <button class="collab-btn collab-btn-rename" type="button" title="重命名" @click="openDocEditModal(doc)">
+                    <svg viewBox="0 0 24 24"><path d="M3 10h11v2H3v-2zm0-2h11v2H3V8zm0 6h7v2H3v-2zm16-6.78l-1.22-1.22c-.39-.39-1.02-.39-1.41 0L15 7.37 18.63 11l1.37-1.37c.39-.39.39-1.02 0-1.41zM11 11.37V15h3.63l6.3-6.3-3.63-3.63L11 11.37z"/></svg>
+                  </button>
+                  <button class="collab-btn collab-btn-delete" type="button" title="删除" @click="openDocDeleteModal(doc)">
+                    <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="task-modal-tip">说明：协作文档仅 Captain / Leader 可创建、修改、删除，正文内容后续再接入。</p>
     </section>
 
     <section v-else class="content-panel placeholder">
@@ -1599,19 +1701,22 @@ onBeforeUnmount(() => {
 
     <div v-if="docUploadVisible" class="edit-team-mask" @click="closeDocUploadModal">
       <section class="edit-team-modal" @click.stop>
-        <h3>{{ docUploadForm.type === 1 ? '上传资料文档' : '上传Agent文档' }}</h3>
+        <h3>{{ docUploadForm.type === 1 ? '上传资料文档' : '创建协作文档' }}</h3>
         <label class="edit-label" for="doc-upload-title">文档标题</label>
         <input id="doc-upload-title" v-model="docUploadForm.title" class="edit-input" type="text" maxlength="200" placeholder="请输入文档标题" />
 
-        <label class="edit-label" for="doc-upload-file">选择文件</label>
-        <input id="doc-upload-file" class="edit-input" type="file" accept=".pdf,.docx,.md,.txt" @change="handleDocFileChange" />
-        <p class="task-modal-tip">仅支持 pdf / docx / md / txt</p>
+        <template v-if="docUploadForm.type === 1">
+          <label class="edit-label" for="doc-upload-file">选择文件</label>
+          <input id="doc-upload-file" ref="docUploadFileInputRef" class="edit-input" type="file" accept=".pdf,.docx,.md,.txt" @change="handleDocFileChange" />
+          <p class="task-modal-tip">仅支持 pdf / docx / md / txt</p>
+        </template>
+        <p v-else class="task-modal-tip">当前只会创建一条协作文档记录，具体正文内容后续再接入。</p>
 
         <p v-if="docUploadError" class="edit-error">{{ docUploadError }}</p>
         <div class="edit-team-actions">
           <button class="edit-cancel-btn" type="button" :disabled="docUploadLoading" @click="closeDocUploadModal">取消</button>
           <button class="edit-confirm-btn" type="button" :disabled="docUploadLoading" @click="submitDocUpload">
-            {{ docUploadLoading ? '上传中...' : '确认上传' }}
+            {{ docUploadLoading ? (docUploadForm.type === 1 ? '上传中...' : '创建中...') : (docUploadForm.type === 1 ? '确认上传' : '确认创建') }}
           </button>
         </div>
       </section>
@@ -1835,6 +1940,180 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+
+.collab-docs-wrap {
+  overflow-x: auto;
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.docs-table thead tr {
+  background-color: #faf5f0;
+}
+
+.docs-table th {
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #7a6256;
+  border-bottom: 1px solid #f0e6de;
+}
+
+.th-name { width: 35%; }
+.th-creator { width: 15%; }
+.th-time { width: 20%; }
+.th-actions { width: 10%; text-align: center; }
+
+.docs-table tbody tr {
+  border-bottom: 1px solid #f7efe9;
+  transition: background-color 0.2s ease;
+}
+
+.docs-table tbody tr:hover {
+  background-color: #fdfbf9;
+}
+
+.docs-table td {
+  padding: 14px 16px;
+  vertical-align: middle;
+}
+
+.collab-doc-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.collab-doc-icon-wrapper {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.collab-doc-icon-wrapper.docx { background-color: #e8f3ff; fill: #2b85e4; }
+.collab-doc-icon-wrapper.xlsx { background-color: #eaf8f0; fill: #19be6b; }
+.collab-doc-icon-wrapper.pptx { background-color: #fff3e8; fill: #ff9900; }
+.collab-doc-icon-wrapper.pdf  { background-color: #ffebec; fill: #ed4014; }
+.collab-doc-icon-wrapper.txt  { background-color: #f2f2f4; fill: #7e8794; }
+
+.doc-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.collab-doc-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.collab-doc-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #3d2a21;
+}
+
+.collab-doc-size {
+  font-size: 11px;
+  color: #a39087;
+}
+
+.collab-creator-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.collab-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #efe6d9;
+  background: #fff8f5;
+  flex-shrink: 0;
+}
+
+.collab-creator-name {
+  font-size: 13px;
+  color: #563f35;
+}
+
+.collab-time-cell {
+  min-width: 148px;
+}
+
+.collab-time-main {
+  font-size: 13px;
+  color: #8c766c;
+}
+
+.collab-time-sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #ad978d;
+}
+
+.collab-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.collab-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.collab-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.collab-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.collab-btn-enter {
+  background-color: #e9ecf7;
+  fill: #22366d;
+}
+.collab-btn-enter:hover:not(:disabled) { background-color: #dadfe2; }
+
+.collab-btn-download {
+  background-color: #e6f6ec;
+  fill: #1ca261;
+}
+.collab-btn-download:hover:not(:disabled) { background-color: #d1f0db; }
+
+.collab-btn-rename {
+  background-color: #fdf3e7;
+  fill: #e49138;
+}
+.collab-btn-rename:hover:not(:disabled) { background-color: #fae4cd; }
+
+.collab-btn-delete {
+  background-color: #fcecef;
+  fill: #d85c68;
+}
+.collab-btn-delete:hover:not(:disabled) { background-color: #f9d2d9; }
+
 .team-page {
   --color-primary: #e85d2a;
   --color-primary-2: #f19b2c;

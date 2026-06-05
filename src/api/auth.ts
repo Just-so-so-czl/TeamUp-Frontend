@@ -139,7 +139,9 @@ export interface TeamDocumentItem {
   fileSize: number
   creatorId: string
   creatorName: string
+  creatorAvatar: number
   createTime: string
+  updateTime: string
 }
 
 export interface TeamDocumentListResponse {
@@ -339,6 +341,10 @@ export async function uploadTeamDocument(teamId: string, title: string, type: nu
   if (!response.ok || result.code !== 200) {
     throw new ApiError(result.message || '上传失败', result.code ?? response.status, result.errorType)
   }
+}
+
+export async function createCollabDocument(teamId: string, title: string): Promise<void> {
+  await request<null>('/document/create-collab', { teamId, title }, true)
 }
 
 export async function updateTeamDocumentTitle(documentId: string, title: string): Promise<void> {

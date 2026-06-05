@@ -91,7 +91,7 @@
 
       <div class="doc-tabs">
         <button class="tab-btn" :class="{ active: activeDocTab === 1 }" type="button" @click="switchDocTab(1)">资料文档</button>
-        <button class="tab-btn" :class="{ active: activeDocTab === 3 }" type="button" @click="switchDocTab(3)">协作文档</button>
+        <button class="tab-btn" :class="{ active: activeDocTab === 2 }" type="button" @click="switchDocTab(2)">协作文档</button>
       </div>
 
       <div class="doc-cards">
@@ -162,7 +162,7 @@ const sessionId = ref<string | undefined>(undefined)
 const sessions = ref<MentorSessionItem[]>([])
 const sessionLoading = ref(false)
 const sessionError = ref('')
-const activeDocTab = ref<1 | 3>(1)
+const activeDocTab = ref<1 | 2>(1)
 const documents = ref<MentorSidebarDocItem[]>([])
 const docLoading = ref(false)
 const docError = ref('')
@@ -297,7 +297,7 @@ const loadDocuments = async () => {
   }
 }
 
-const switchDocTab = (type: 1 | 3) => {
+const switchDocTab = (type: 1 | 2) => {
   if (activeDocTab.value === type) return
   activeDocTab.value = type
   void loadDocuments()
