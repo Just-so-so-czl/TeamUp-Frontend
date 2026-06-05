@@ -467,6 +467,7 @@ const collabDocIconClass = (fileType: string) => {
 const collabDocAvatarSrc = (avatar?: number) => memberAvatarSrc(avatar)
 
 const isDocumentContentReady = (doc: TeamDocumentItem) => !!(doc.storagePath || '').trim()
+const canEnterCollabEditor = (doc: TeamDocumentItem) => !!(doc.documentId || '').trim()
 
 const getCollabDocMetaText = (doc: TeamDocumentItem) => {
   if (!isDocumentContentReady(doc)) {
@@ -481,11 +482,16 @@ const previewDocument = async (doc: TeamDocumentItem) => {
     return
   }
   try {
-    const url = await fetchTeamDocumentDownloadUrl(documentId)
-    if (!url) {
-      return
-    }
-    window.open(url, '_blank', 'noopener,noreferrer')
+    await router.push({
+      name: 'collab-editor',
+      params: {
+        id: teamId.value,
+        documentId,
+      },
+      query: {
+        title: doc.title || '协作文档',
+      },
+    })
   } catch (error) {
     collabDocsError.value = error instanceof Error ? error.message : '打开协作文档失败'
   }
@@ -1529,9 +1535,15 @@ onBeforeUnmount(() => {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="doc in collabDocs" :key="doc.documentId">
+            <tr
+              v-for="doc in collabDocs"
+              :key="doc.documentId"
+              class="collab-row"
+              :class="{ 'row-disabled': !canEnterCollabEditor(doc) }"
+              @click="canEnterCollabEditor(doc) && previewDocument(doc)"
+            >
               <td>
-                <div class="collab-doc-info">
+                <div class="collab-doc-info" :class="{ clickable: canEnterCollabEditor(doc) }">
                   <div class="collab-doc-icon-wrapper" :class="collabDocIconClass(doc.fileType)">
                     <svg viewBox="0 0 24 24" class="doc-icon">
                       <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
@@ -1561,9 +1573,9 @@ onBeforeUnmount(() => {
                   <button
                     class="collab-btn collab-btn-enter"
                     type="button"
-                    :title="isDocumentContentReady(doc) ? '查看' : '内容暂未接入'"
-                    :disabled="!isDocumentContentReady(doc)"
-                    @click="previewDocument(doc)"
+                    :title="canEnterCollabEditor(doc) ? '进入编辑页' : '文档记录无效'"
+                    :disabled="!canEnterCollabEditor(doc)"
+                    @click.stop="previewDocument(doc)"
                   >
                     <svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
                   </button>
@@ -1572,14 +1584,14 @@ onBeforeUnmount(() => {
                     type="button"
                     :title="isDocumentContentReady(doc) ? '下载' : '内容暂未接入'"
                     :disabled="!isDocumentContentReady(doc)"
-                    @click="downloadDocument(doc)"
+                    @click.stop="downloadDocument(doc)"
                   >
                     <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
                   </button>
-                  <button class="collab-btn collab-btn-rename" type="button" title="重命名" @click="openDocEditModal(doc)">
+                  <button class="collab-btn collab-btn-rename" type="button" title="重命名" @click.stop="openDocEditModal(doc)">
                     <svg viewBox="0 0 24 24"><path d="M3 10h11v2H3v-2zm0-2h11v2H3V8zm0 6h7v2H3v-2zm16-6.78l-1.22-1.22c-.39-.39-1.02-.39-1.41 0L15 7.37 18.63 11l1.37-1.37c.39-.39.39-1.02 0-1.41zM11 11.37V15h3.63l6.3-6.3-3.63-3.63L11 11.37z"/></svg>
                   </button>
-                  <button class="collab-btn collab-btn-delete" type="button" title="删除" @click="openDocDeleteModal(doc)">
+                  <button class="collab-btn collab-btn-delete" type="button" title="删除" @click.stop="openDocDeleteModal(doc)">
                     <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                   </button>
                 </div>
@@ -1973,6 +1985,14 @@ onBeforeUnmount(() => {
   transition: background-color 0.2s ease;
 }
 
+.collab-row {
+  cursor: pointer;
+}
+
+.collab-row.row-disabled {
+  cursor: default;
+}
+
 .docs-table tbody tr:hover {
   background-color: #fdfbf9;
 }
@@ -1986,6 +2006,14 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.collab-doc-info.clickable .collab-doc-name {
+  transition: color 0.2s ease;
+}
+
+.collab-row:hover .collab-doc-info.clickable .collab-doc-name {
+  color: #2b85e4;
 }
 
 .collab-doc-icon-wrapper {

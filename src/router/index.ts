@@ -6,6 +6,7 @@ import DashboardView from '../views/DashboardView.vue'
 import TeamDetailView from '../views/TeamDetailView.vue'
 import TeamMentorView from '../views/MentorView.vue'
 import MessageCenterView from '../views/MessageCenterView.vue'
+import CollaborativeEditorView from '../views/CollaborativeEditorView.vue'
 import { ApiError, fetchCurrentUser } from '@/api/auth'
 import { clearAuthStorage, getStoredLoginUser, getStoredToken, saveStoredLoginUser } from '@/utils/authUser'
 
@@ -47,6 +48,12 @@ const router = createRouter({
       name: 'team-mentor',
       component: TeamMentorView,
       meta: { title: '智能导师 - TeamUp' },
+    },
+    {
+      path: '/teams/:id/collab-docs/:documentId/editor',
+      name: 'collab-editor',
+      component: CollaborativeEditorView,
+      meta: { title: '协作文档 - TeamUp' },
     },
     {
       path: '/messages',
