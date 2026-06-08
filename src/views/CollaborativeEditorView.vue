@@ -1,9 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, type Component } from 'vue'
+import { computed, onBeforeUnmount, ref, type Component } from 'vue'
+import { Extension } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Color from '@tiptap/extension-color'
+import Highlight from '@tiptap/extension-highlight'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
+import { Table } from '@tiptap/extension-table'
+import TableCell from '@tiptap/extension-table-cell'
+import TableHeader from '@tiptap/extension-table-header'
+import TableRow from '@tiptap/extension-table-row'
+import { TextStyle } from '@tiptap/extension-text-style'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlignLeft,
@@ -72,10 +80,12 @@ interface ChatMessage {
 interface ToolbarItem {
   icon?: Component
   text?: string
+  textValue?: string
   action?: () => void
   label: string
   active?: () => boolean | undefined
   accent?: boolean
+  colorPreview?: string
 }
 
 const route = useRoute()
@@ -127,6 +137,39 @@ const aiMessages: ChatMessage[] = [
 ]
 
 const quickActions = ['帮我优化这段文字', '提取本文档的待办事项']
+const textColor = '#e05f54'
+const highlightColor = '#fff1a8'
+const fontSizeOptions = ['12', '14', '16', '18', '20', '24']
+const selectedFontSize = ref('14')
+const tableDialogVisible = ref(false)
+const tableRowsInput = ref(3)
+const tableColsInput = ref(3)
+const zoomPercent = ref(100)
+
+const FontSizeExtension = Extension.create({
+  name: 'fontSize',
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['textStyle'],
+        attributes: {
+          fontSize: {
+            default: null,
+            parseHTML: (element) => element.style.fontSize || null,
+            renderHTML: (attributes) => {
+              if (!attributes.fontSize) {
+                return {}
+              }
+              return {
+                style: `font-size: ${attributes.fontSize}`,
+              }
+            },
+          },
+        },
+      },
+    ]
+  },
+})
 
 const editorContent = `
   <h1>产品需求文档</h1>
@@ -175,7 +218,17 @@ const editorContent = `
 const editor = useEditor({
   extensions: [
     StarterKit,
+    TextStyle,
+    FontSizeExtension,
+    Color,
+    Highlight.configure({ multicolor: true }),
     Underline,
+    Table.configure({
+      resizable: false,
+    }),
+    TableRow,
+    TableHeader,
+    TableCell,
     Link.configure({
       openOnClick: false,
     }),
@@ -188,36 +241,108 @@ const editor = useEditor({
   },
 })
 
+const currentFontSizeLabel = computed(() => {
+  const value = editor.value?.getAttributes('textStyle')?.fontSize
+  if (typeof value === 'string' && value.endsWith('px')) {
+    return value.replace('px', '')
+  }
+  return selectedFontSize.value
+})
+
+const applyFontSize = (size: string) => {
+  selectedFontSize.value = size
+  const chain = editor.value?.chain().focus()
+  if (!chain) return
+  chain.setMark('textStyle', { fontSize: `${size}px` }).run()
+}
+
+const openTableDialog = () => {
+  if (editor.value?.isActive('table')) {
+    editor.value.chain().focus().deleteTable().run()
+    return
+  }
+  tableDialogVisible.value = true
+}
+
+const insertCustomTable = () => {
+  const rows = Math.max(1, Math.min(12, Number(tableRowsInput.value) || 3))
+  const cols = Math.max(1, Math.min(8, Number(tableColsInput.value) || 3))
+  tableRowsInput.value = rows
+  tableColsInput.value = cols
+  editor.value?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
+  tableDialogVisible.value = false
+}
+
+const preventToolbarBlur = (event: MouseEvent) => {
+  event.preventDefault()
+}
+
+const editorZoomStyle = computed(() => ({
+  transform: `scale(${zoomPercent.value / 100})`,
+  transformOrigin: 'top center',
+}))
+
+const decreaseZoom = () => {
+  zoomPercent.value = Math.max(50, zoomPercent.value - 10)
+}
+
+const increaseZoom = () => {
+  zoomPercent.value = Math.min(200, zoomPercent.value + 10)
+}
+
 const toolbarRows: ToolbarItem[][] = [
   [
     { icon: Undo2, action: () => editor.value?.chain().focus().undo().run(), label: '撤销' },
     { icon: Redo2, action: () => editor.value?.chain().focus().redo().run(), label: '重做' },
-    { text: '正文', label: '段落样式' },
-    { text: '微软雅黑', label: '字体' },
-    { text: '14', label: '字号' },
     { icon: Bold, action: () => editor.value?.chain().focus().toggleBold().run(), label: '粗体', active: () => editor.value?.isActive('bold') },
     { icon: Italic, action: () => editor.value?.chain().focus().toggleItalic().run(), label: '斜体', active: () => editor.value?.isActive('italic') },
     { icon: UnderlineIcon, action: () => editor.value?.chain().focus().toggleUnderline().run(), label: '下划线', active: () => editor.value?.isActive('underline') },
     { icon: Strikethrough, action: () => editor.value?.chain().focus().toggleStrike().run(), label: '删除线', active: () => editor.value?.isActive('strike') },
-    { icon: Type, label: '字体颜色', accent: true },
-    { icon: Highlighter, label: '高亮' },
+    {
+      icon: Type,
+      label: '字体颜色',
+      accent: true,
+      colorPreview: textColor,
+      action: () => {
+        const chain = editor.value?.chain().focus()
+        if (!chain) return
+        if (editor.value?.isActive('textStyle', { color: textColor })) {
+          chain.unsetColor().run()
+          return
+        }
+        chain.setColor(textColor).run()
+      },
+      active: () => editor.value?.isActive('textStyle', { color: textColor }),
+    },
+    {
+      icon: Highlighter,
+      label: '高亮',
+      colorPreview: highlightColor,
+      action: () => {
+        const chain = editor.value?.chain().focus()
+        if (!chain) return
+        if (editor.value?.isActive('highlight', { color: highlightColor })) {
+          chain.unsetHighlight().run()
+          return
+        }
+        chain.toggleHighlight({ color: highlightColor }).run()
+      },
+      active: () => editor.value?.isActive('highlight', { color: highlightColor }),
+    },
     { icon: List, action: () => editor.value?.chain().focus().toggleBulletList().run(), label: '无序列表', active: () => editor.value?.isActive('bulletList') },
     { icon: ListOrdered, action: () => editor.value?.chain().focus().toggleOrderedList().run(), label: '有序列表', active: () => editor.value?.isActive('orderedList') },
-  ],
-  [
-    { icon: IndentDecrease, label: '减少缩进' },
-    { icon: IndentIncrease, label: '增加缩进' },
-    { icon: Quote, action: () => editor.value?.chain().focus().toggleBlockquote().run(), label: '引用', active: () => editor.value?.isActive('blockquote') },
-    { icon: SquarePlus, label: '插入模块' },
     { icon: Link2, action: () => editor.value?.chain().focus().extendMarkRange('link').setLink({ href: 'https://' }).run(), label: '插入链接' },
     { icon: Image, label: '插入图片' },
-    { icon: SlidersHorizontal, label: '格式设置' },
-    { icon: AlignLeft, label: '左对齐' },
-    { icon: Table2, label: '插入表格' },
+    {
+      icon: Table2,
+      label: '插入表格',
+      action: openTableDialog,
+      active: () => editor.value?.isActive('table'),
+    },
     { icon: SquareCode, action: () => editor.value?.chain().focus().toggleCodeBlock().run(), label: '代码块', active: () => editor.value?.isActive('codeBlock') },
     { icon: Code2, action: () => editor.value?.chain().focus().toggleCode().run(), label: '行内代码', active: () => editor.value?.isActive('code') },
     { icon: Ellipsis, label: '更多' },
-  ],
+  ]
 ]
 
 const wordCount = computed(() => {
@@ -301,23 +426,61 @@ onBeforeUnmount(() => {
               :key="item.label"
               class="tool-button"
               :class="{ active: item.active?.(), wide: !!item.text, accent: item.accent }"
+              :style="item.colorPreview && item.active?.() ? { backgroundColor: item.colorPreview === highlightColor ? '#fff7c7' : '#fff1ef' } : undefined"
               type="button"
               :title="item.label"
+              @mousedown="preventToolbarBlur"
               @click="item.action?.()"
             >
               <template v-if="item.text">
-                <span>{{ item.text }}</span>
+                <span>{{ item.textValue || item.text }}</span>
                 <ChevronDown />
               </template>
               <template v-else>
                 <component :is="item.icon" v-if="item.icon" />
+                <span v-if="item.colorPreview" class="tool-color-line" :style="{ backgroundColor: item.colorPreview }"></span>
               </template>
             </button>
           </div>
         </div>
 
+        <div class="editor-controls-bar">
+          <div class="font-size-group">
+            <span class="control-label">字号</span>
+            <button
+              v-for="size in fontSizeOptions"
+              :key="size"
+              class="size-chip"
+              :class="{ active: selectedFontSize === size }"
+              type="button"
+              @mousedown="preventToolbarBlur"
+              @click="applyFontSize(size)"
+            >
+              {{ size }}
+            </button>
+          </div>
+
+          <div v-if="tableDialogVisible" class="table-dialog">
+            <span class="control-label">插入表格</span>
+            <label>
+              行
+              <input v-model.number="tableRowsInput" type="number" min="1" max="12" />
+            </label>
+            <label>
+              列
+              <input v-model.number="tableColsInput" type="number" min="1" max="8" />
+            </label>
+            <button class="dialog-confirm" type="button" @click="insertCustomTable">确认</button>
+            <button class="dialog-cancel" type="button" @click="tableDialogVisible = false">取消</button>
+          </div>
+        </div>
+
         <div class="editor-scroll">
-          <EditorContent v-if="editor" :editor="editor" class="editor-host" />
+          <div class="editor-zoom-shell">
+            <div class="editor-zoom-stage" :style="editorZoomStyle">
+              <EditorContent v-if="editor" :editor="editor" class="editor-host" />
+            </div>
+          </div>
         </div>
 
         <div class="editor-footer">
@@ -326,11 +489,11 @@ onBeforeUnmount(() => {
             <span>中文(简体)</span>
           </div>
           <div class="footer-right">
-            <span>100%</span>
-            <button class="zoom-button" type="button">
+            <span>{{ zoomPercent }}%</span>
+            <button class="zoom-button" type="button" @click="decreaseZoom">
               <Minus />
             </button>
-            <button class="zoom-button" type="button">
+            <button class="zoom-button" type="button" @click="increaseZoom">
               <Plus />
             </button>
           </div>
@@ -343,7 +506,7 @@ onBeforeUnmount(() => {
 
       <aside class="assistant-panel">
         <div class="assistant-content">
-          
+
 
           <div class="assistant-welcome">
             <div class="assistant-bot">
@@ -746,6 +909,7 @@ onBeforeUnmount(() => {
 }
 
 .tool-button {
+  position: relative;
   min-width: 34px;
   height: 34px;
   padding: 0 10px;
@@ -759,6 +923,15 @@ onBeforeUnmount(() => {
 .tool-button :deep(svg) {
   width: 16px;
   height: 16px;
+}
+
+.tool-color-line {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  height: 3px;
+  border-radius: 999px;
 }
 
 .tool-button:hover {
@@ -792,6 +965,19 @@ onBeforeUnmount(() => {
     radial-gradient(circle at top center, rgba(154, 219, 255, 0.12), transparent 40%);
 }
 
+.editor-zoom-shell {
+  display: flex;
+  justify-content: center;
+  padding: 0 0 28px;
+}
+
+.editor-zoom-stage {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  transition: transform 0.18s ease;
+}
+
 .editor-host {
   min-height: 100%;
 }
@@ -806,6 +992,15 @@ onBeforeUnmount(() => {
   color: #182131;
   font-size: 16px;
   line-height: 1.8;
+}
+
+:deep(.editor-surface strong),
+:deep(.editor-surface b) {
+  font-weight: 700;
+}
+
+:deep(.editor-surface span[style*='font-size']) {
+  line-height: inherit;
 }
 
 :deep(.editor-surface h1) {
@@ -831,6 +1026,11 @@ onBeforeUnmount(() => {
 
 :deep(.editor-surface p) {
   margin: 0 0 12px;
+}
+
+:deep(.editor-surface mark) {
+  padding: 0.08em 0.18em;
+  border-radius: 4px;
 }
 
 :deep(.editor-surface ul) {
@@ -872,6 +1072,28 @@ onBeforeUnmount(() => {
   font-weight: 700;
 }
 
+:deep(.editor-surface pre) {
+  margin: 14px 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: #1f2430;
+  color: #edf2ff;
+  overflow-x: auto;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+:deep(.editor-surface code) {
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+:deep(.editor-surface :not(pre) > code) {
+  padding: 0.1em 0.35em;
+  border-radius: 6px;
+  background: #eef3fb;
+  color: #31486b;
+}
+
 .editor-footer {
   display: flex;
   align-items: center;
@@ -896,6 +1118,87 @@ onBeforeUnmount(() => {
   background: #f4f7fb;
   color: #56657d;
   box-shadow: inset 0 0 0 1px #d8e1ef;
+}
+
+.editor-controls-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(220, 228, 241, 0.94);
+  background: rgba(248, 251, 255, 0.86);
+}
+
+.font-size-group,
+.table-dialog {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.control-label {
+  color: #66758d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.size-chip,
+.dialog-confirm,
+.dialog-cancel {
+  border: 0;
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.size-chip {
+  background: #ffffff;
+  color: #415069;
+  box-shadow: inset 0 0 0 1px #dbe4f0;
+}
+
+.size-chip.active {
+  background: #e9f1ff;
+  color: #2166df;
+  box-shadow: inset 0 0 0 1px #bfd4ff;
+}
+
+.table-dialog {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px #dce5f0;
+}
+
+.table-dialog label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #5c6c85;
+  font-size: 13px;
+}
+
+.table-dialog input {
+  width: 56px;
+  height: 32px;
+  border: 1px solid #d7e1ee;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: #22314a;
+  background: #fbfdff;
+}
+
+.dialog-confirm {
+  background: #2f7fff;
+  color: #fff;
+}
+
+.dialog-cancel {
+  background: #eef3fb;
+  color: #51607a;
 }
 
 .assistant-toggle {
