@@ -62,7 +62,23 @@
         <div v-for="msg in messages" :key="msg.id" class="message-row" :class="msg.role === 'user' ? 'right' : 'left'">
           <div v-if="msg.role === 'assistant'" class="msg-avatar">AI</div>
           <div class="message" :class="msg.role === 'user' ? 'user' : 'ai'">
-            <div class="msg-text" v-html="msg.html"></div>
+            <div
+              class="msg-text"
+              :class="{
+                'user-msg-text': msg.role === 'user',
+                'user-msg-code': msg.role === 'user' && msg.isLikelyLongSingleLine,
+                'user-msg-expanded': msg.role === 'user' && msg.expanded,
+              }"
+              v-html="msg.html"
+            ></div>
+            <button
+              v-if="msg.role === 'user' && msg.canExpand"
+              class="msg-expand-btn"
+              type="button"
+              @click="toggleExpand(msg.id)"
+            >
+              {{ msg.expanded ? '收起' : '展开' }}
+            </button>
             <div class="msg-time">{{ msg.time }}</div>
           </div>
         </div>
@@ -147,6 +163,9 @@ type ChatMessage = {
   content: string
   html: string
   time: string
+  isLikelyLongSingleLine?: boolean
+  canExpand?: boolean
+  expanded?: boolean
 }
 
 const md = new MarkdownIt({ breaks: true, linkify: true })
@@ -178,6 +197,21 @@ const currentUser = computed(() => {
   return { name: user.name, email: user.email, avatarUrl: avatarMap[user.avatar] ?? a1 }
 })
 
+const isLikelyLongSingleLine = (text: string) => {
+  const trimmed = (text || '').trim()
+  if (!trimmed) return false
+  if (/[\r\n]/.test(trimmed)) return false
+  return trimmed.length >= 80 && !/\s{2,}/.test(trimmed)
+}
+
+const shouldShowExpand = (text: string) => {
+  const trimmed = (text || '').trim()
+  if (!trimmed) return false
+  if (isLikelyLongSingleLine(trimmed)) return true
+  const lineCount = trimmed.split(/\r?\n/).length
+  return lineCount > 4 || trimmed.length > 120
+}
+
 const nowLabel = () => new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 const formatSessionTime = (value: string) => (value ? new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' }) : '')
 const sessionCacheKey = computed(() => `teamup_mentor_last_session_${teamId.value}`)
@@ -191,6 +225,20 @@ const mapHistoryMessage = (item: MentorHistoryMessage): ChatMessage => {
     content,
     html: renderMarkdown(content),
     time: item.createdAt ? new Date(item.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : nowLabel(),
+    isLikelyLongSingleLine: role === 'user' ? isLikelyLongSingleLine(content) : false,
+    canExpand: role === 'user' ? shouldShowExpand(content) : false,
+    expanded: false,
+  }
+}
+
+const toggleExpand = (messageId: string) => {
+  const index = messages.value.findIndex((msg) => msg.id === messageId)
+  if (index < 0) return
+  const current = messages.value[index]
+  if (!current) return
+  messages.value[index] = {
+    ...current,
+    expanded: !current.expanded,
   }
 }
 
@@ -316,7 +364,16 @@ const sendMessage = async () => {
   const message = inputText.value.trim()
   if (!message || loading.value) return
 
-  messages.value.push({ id: `u-${Date.now()}`, role: 'user', content: message, html: renderMarkdown(message), time: nowLabel() })
+  messages.value.push({
+    id: `u-${Date.now()}`,
+    role: 'user',
+    content: message,
+    html: renderMarkdown(message),
+    time: nowLabel(),
+    isLikelyLongSingleLine: isLikelyLongSingleLine(message),
+    canExpand: shouldShowExpand(message),
+    expanded: false,
+  })
   messages.value.push({ id: `a-${Date.now()}`, role: 'assistant', content: '', html: '', time: nowLabel() })
   const aiMsgIndex = messages.value.length - 1
 
@@ -393,12 +450,67 @@ onMounted(() => {
 .msg-avatar { width: 40px; height: 40px; border-radius: 50%; margin-right: 12px; font-size: 12px; }
 .message { max-width: 72%; padding: 14px; border-radius: 14px; box-shadow: 0 6px 20px rgba(40, 70, 120, 0.04); }
 .message.ai { background: white; }
-.message.user { background: #edf4ff; }
+.message.user { background: #edf4ff; max-width: min(520px, 70%); }
 .msg-text { line-height: 1.8; color: #2b3550; font-size: 13px; }
 .msg-text :deep(p) { margin: 0 0 8px; }
 .msg-text :deep(ul), .msg-text :deep(ol) { margin: 0 0 8px 18px; padding: 0; }
 .msg-text :deep(code) { background: #f2f5ff; padding: 2px 4px; border-radius: 4px; }
 .msg-text :deep(pre) { background: #f5f7fd; padding: 10px; border-radius: 8px; overflow-x: auto; }
+.user-msg-text {
+  max-height: 7.2em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  word-break: break-word;
+}
+.user-msg-text :deep(p:last-child) { margin-bottom: 0; }
+.user-msg-expanded {
+  max-height: none;
+  overflow: visible;
+  display: block;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+.user-msg-code {
+  display: block;
+  max-width: 100%;
+  max-height: 4.2em;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  word-break: normal;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+.user-msg-code::-webkit-scrollbar { height: 6px; }
+.user-msg-code::-webkit-scrollbar-thumb { background: rgba(126, 145, 185, 0.45); border-radius: 999px; }
+.user-msg-code :deep(*) { white-space: nowrap !important; word-break: normal !important; }
+.user-msg-code :deep(p) { margin: 0; display: inline; }
+.user-msg-code :deep(code) {
+  display: inline-block;
+  max-width: 100%;
+  white-space: nowrap;
+}
+.user-msg-code.user-msg-expanded {
+  max-height: none;
+  overflow-x: auto;
+}
+.msg-expand-btn {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #4f7cff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.msg-expand-btn:hover {
+  color: #345fd6;
+  text-decoration: underline;
+}
 .msg-time { margin-top: 10px; color: #9aa3b6; font-size: 12px; }
 .chat-input { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 6px 30px rgba(40, 70, 120, 0.04); }
 .chat-input textarea { width: 100%; height: 81px; border: none; resize: none; outline: none; font-size: 14px; font-family: inherit; }
