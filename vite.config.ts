@@ -12,7 +12,9 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url))
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      'y-protocols/awareness': fileURLToPath(new URL('./node_modules/y-protocols/awareness.js', import.meta.url)),
+      'y-protocols/sync': fileURLToPath(new URL('./node_modules/y-protocols/sync.js', import.meta.url)),
     },
   },
 })

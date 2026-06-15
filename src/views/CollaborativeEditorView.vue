@@ -3,18 +3,21 @@ import { computed, onBeforeUnmount, ref, type Component } from 'vue'
 import { Extension } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
+import Collaboration from '@tiptap/extension-collaboration'
 import Color from '@tiptap/extension-color'
 import Highlight from '@tiptap/extension-highlight'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
+import { defaultSelectionBuilder, yCursorPlugin } from '@tiptap/y-tiptap'
 import { Table } from '@tiptap/extension-table'
 import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import TableRow from '@tiptap/extension-table-row'
 import { TextStyle } from '@tiptap/extension-text-style'
-import { useRoute, useRouter } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
+import { HocuspocusProvider } from '@hocuspocus/provider'
+import * as Y from 'yjs'
 import {
-  AlignLeft,
   ArrowLeft,
   Bold,
   Bot,
@@ -25,22 +28,15 @@ import {
   Ellipsis,
   Highlighter,
   Image,
-  IndentDecrease,
-  IndentIncrease,
   Italic,
   Link2,
   List,
   ListOrdered,
   Minus,
   Plus,
-  Quote,
   Redo2,
   Send,
-  Share2,
-  SlidersHorizontal,
-  Sparkles,
   SquareCode,
-  SquarePlus,
   Strikethrough,
   Table2,
   ThumbsDown,
@@ -50,7 +46,6 @@ import {
   Undo2,
   User,
   WandSparkles,
-  X,
 } from 'lucide-vue-next'
 import avatar1 from '@/assets/avatar/a1.png'
 import avatar2 from '@/assets/avatar/a2.png'
@@ -58,6 +53,9 @@ import avatar3 from '@/assets/avatar/a3.png'
 import avatar4 from '@/assets/avatar/a4.png'
 import avatar5 from '@/assets/avatar/a5.png'
 import avatar6 from '@/assets/avatar/a6.png'
+import avatar7 from '@/assets/avatar/a7.png'
+import avatar8 from '@/assets/avatar/a8.png'
+import { getStoredLoginUser } from '@/utils/authUser'
 
 interface MemberItem {
   id: string
@@ -88,13 +86,50 @@ interface ToolbarItem {
   colorPreview?: string
 }
 
+interface AwarenessUserState {
+  id?: string
+  name?: string
+  avatar?: string
+}
+
+interface AwarenessStateShape {
+  user?: AwarenessUserState
+}
+
+interface CollaborationCursorUser {
+  id?: string
+  name: string
+  color: string
+  avatar?: string
+}
+
+interface CollaborationCursorOptions {
+  provider: HocuspocusProvider | null
+  user: CollaborationCursorUser
+  render: (user: CollaborationCursorUser) => HTMLElement
+  selectionRender: typeof defaultSelectionBuilder
+}
+
 const route = useRoute()
 const router = useRouter()
 
 const documentTitle = computed(() => String(route.query.title || '产品需求文档'))
 const documentId = computed(() => String(route.params.documentId || ''))
+const hocuspocusUrl = import.meta.env.VITE_HOCUSPOCUS_URL || 'ws://127.0.0.1:1234'
+const collaborationRoomName = computed(() => documentId.value || 'preview-collab-doc')
 
-const onlineMembers: MemberItem[] = [
+const avatarMap: Record<number, string> = {
+  1: avatar1,
+  2: avatar2,
+  3: avatar3,
+  4: avatar4,
+  5: avatar5,
+  6: avatar6,
+  7: avatar7,
+  8: avatar8,
+}
+
+const defaultOnlineMembers: MemberItem[] = [
   { id: '1', name: '张三', role: '所有者', avatar: avatar1, active: true },
   { id: '2', name: '李四', avatar: avatar2, active: true },
   { id: '3', name: '王五', avatar: avatar3, active: true },
@@ -103,7 +138,9 @@ const onlineMembers: MemberItem[] = [
   { id: '6', name: '周八', avatar: avatar6, active: true },
 ]
 
-const stackedMembers: MemberItem[] = onlineMembers.slice(0, 4)
+const collaborationMembers = ref<MemberItem[]>([])
+const connectionStatus = ref<'connecting' | 'connected' | 'disconnected'>('connecting')
+const documentSynced = ref(false)
 
 const aiMessages: ChatMessage[] = [
   {
@@ -145,6 +182,48 @@ const tableDialogVisible = ref(false)
 const tableRowsInput = ref(3)
 const tableColsInput = ref(3)
 const zoomPercent = ref(100)
+const currentUser = getStoredLoginUser()
+
+const currentUserProfile = {
+  id: currentUser?.id || 'local-user',
+  name: currentUser?.name || '当前用户',
+  avatar: avatarMap[currentUser?.avatar || 1] || avatar1,
+  color: ['#2f7fff', '#ef6c5b', '#26a69a', '#8e6cf4', '#ff9f43', '#20bf6b'][Number(currentUser?.avatar || 1) % 6] || '#2f7fff',
+}
+
+const COLLAB_LOG_PREFIX = '[collab-editor]'
+const providerLogState = {
+  incomingMessages: 0,
+  outgoingMessages: 0,
+  awarenessUpdates: 0,
+  ydocUpdates: 0,
+  editorUpdates: 0,
+}
+
+function logCollab(message: string, payload?: Record<string, unknown>) {
+  if (payload) {
+    console.info(COLLAB_LOG_PREFIX, message, payload)
+    return
+  }
+  console.info(COLLAB_LOG_PREFIX, message)
+}
+
+function warnCollab(message: string, payload?: Record<string, unknown>) {
+  if (payload) {
+    console.warn(COLLAB_LOG_PREFIX, message, payload)
+    return
+  }
+  console.warn(COLLAB_LOG_PREFIX, message)
+}
+
+function summarizeCloseEvent(event: unknown) {
+  const closeEvent = event as { code?: number; reason?: string; wasClean?: boolean } | undefined
+  return {
+    code: closeEvent?.code,
+    reason: closeEvent?.reason,
+    wasClean: closeEvent?.wasClean,
+  }
+}
 
 const FontSizeExtension = Extension.create({
   name: 'fontSize',
@@ -171,53 +250,293 @@ const FontSizeExtension = Extension.create({
   },
 })
 
-const editorContent = `
-  <h1>产品需求文档</h1>
-  <h2>1. 项目背景</h2>
-  <p>随着数字化转型的加速，企业对于高效协同和智能化工具的需求日益增长。为提升团队协作效率，降低沟通成本，特开发本产品。</p>
-  <h2>2. 目标用户</h2>
-  <ul>
-    <li>中小型企业团队</li>
-    <li>产品经理</li>
-    <li>项目管理人员</li>
-    <li>研发团队</li>
-  </ul>
-  <h2>3. 核心功能需求</h2>
-  <h3>3.1 文档协作</h3>
-  <div data-callout="checklist">
-    <p>✅ 支持多人同时在线编辑文档</p>
-    <p>✅ 实时保存与版本历史</p>
-    <p>✅ 评论与 @ 成员通知</p>
-    <p>⬜ 权限管理</p>
-  </div>
-  <h3>3.2 智能助手</h3>
-  <table>
-    <thead>
-      <tr>
-        <th>功能</th>
-        <th>描述</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>智能问答</td>
-        <td>基于文档内容进行问答</td>
-      </tr>
-      <tr>
-        <td>内容摘要</td>
-        <td>自动生成文档摘要</td>
-      </tr>
-      <tr>
-        <td>续写建议</td>
-        <td>根据上下文提供内容续写建议</td>
-      </tr>
-    </tbody>
-  </table>
-`
+const CollaborationCursor = Extension.create<CollaborationCursorOptions>({
+  name: 'collaborationCursor',
+  addOptions() {
+    return {
+      provider: null,
+      user: {
+        name: '协作者',
+        color: '#2f7fff',
+      },
+      render: renderCursor,
+      selectionRender: defaultSelectionBuilder,
+    }
+  },
+  addStorage() {
+    return {
+      users: [],
+    }
+  },
+  addProseMirrorPlugins() {
+    if (!this.options.provider?.awareness) {
+      warnCollab('collaboration cursor skipped: missing provider awareness', {
+        roomName: collaborationRoomName.value,
+      })
+      return []
+    }
+
+    const awareness = this.options.provider.awareness
+    awareness.setLocalStateField('user', this.options.user)
+    this.storage.users = Array.from(awareness.getStates().entries()).map(([clientId, state]) => ({
+      clientId,
+      ...(state.user || {}),
+    }))
+    awareness.on('update', () => {
+      this.storage.users = Array.from(awareness.getStates().entries()).map(([clientId, state]) => ({
+        clientId,
+        ...(state.user || {}),
+      }))
+    })
+
+    return [
+      yCursorPlugin(awareness, {
+        cursorBuilder: this.options.render,
+        selectionBuilder: this.options.selectionRender,
+      }),
+    ]
+  },
+})
+
+const ydoc = new Y.Doc()
+
+logCollab('页面初始化', {
+  teamId: String(route.params.id || ''),
+  documentId: documentId.value,
+  roomName: collaborationRoomName.value,
+  hocuspocusUrl,
+  ydocClientId: ydoc.clientID,
+  userId: currentUserProfile.id,
+})
+
+/**
+ * 这里显式创建 Y.UndoManager，而不是继续依赖 Tiptap 默认 history。
+ * 原因是协同编辑场景下，真正的文档来源是 Y.js 的 CRDT 状态，
+ * 撤销/重做也必须由 Y.js 统一管理，才能避免多人协作时的历史栈错乱。
+ */
+const undoManager = new Y.UndoManager(ydoc.getXmlFragment('default'))
+
+function handleYdocUpdate(update: Uint8Array, origin: unknown) {
+  providerLogState.ydocUpdates += 1
+  if (providerLogState.ydocUpdates <= 10 || providerLogState.ydocUpdates % 20 === 0) {
+    logCollab('Y.Doc update', {
+      count: providerLogState.ydocUpdates,
+      updateBytes: update.byteLength,
+      originType: origin?.constructor?.name || typeof origin,
+    })
+  }
+}
+
+ydoc.on('update', handleYdocUpdate)
+
+function syncPresenceMembers() {
+  const awarenessStates = provider.awareness?.getStates() as Map<number, AwarenessStateShape> | undefined
+  if (!awarenessStates || awarenessStates.size === 0) {
+    collaborationMembers.value = []
+    return
+  }
+
+  const members = Array.from(awarenessStates.entries()).reduce<MemberItem[]>((result, [clientId, state]) => {
+    const userState = state?.user
+    if (!userState?.name) {
+      return result
+    }
+    result.push({
+      id: String(userState.id || clientId),
+      name: String(userState.name),
+      role: userState.id === currentUserProfile.id ? '我' : undefined,
+      avatar: String(userState.avatar || avatar1),
+      active: true,
+    })
+    return result
+  }, [])
+
+  collaborationMembers.value = members
+}
+
+function handleProviderStatus(event: { status: 'connecting' | 'connected' | 'disconnected' }) {
+  connectionStatus.value = event.status
+  logCollab('provider status', {
+    status: event.status,
+    roomName: collaborationRoomName.value,
+    synced: provider.synced,
+    hasUnsyncedChanges: provider.hasUnsyncedChanges,
+  })
+}
+
+function handleProviderSynced(event: { state?: boolean }) {
+  documentSynced.value = true
+  logCollab('provider synced', {
+    state: event?.state,
+    roomName: collaborationRoomName.value,
+    awarenessSize: provider.awareness?.getStates().size ?? 0,
+  })
+  syncPresenceMembers()
+}
+
+function handleProviderAwarenessUpdate(event: { states?: unknown[] }) {
+  providerLogState.awarenessUpdates += 1
+  if (providerLogState.awarenessUpdates <= 10 || providerLogState.awarenessUpdates % 20 === 0) {
+    logCollab('awareness update', {
+      count: providerLogState.awarenessUpdates,
+      statesFromEvent: event?.states?.length ?? 0,
+      statesFromProvider: provider.awareness?.getStates().size ?? 0,
+    })
+  }
+  syncPresenceMembers()
+}
+
+function handleProviderDisconnect(event: { event?: unknown }) {
+  documentSynced.value = false
+  warnCollab('provider disconnect', {
+    ...summarizeCloseEvent(event?.event),
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderClose(event: { event?: unknown }) {
+  warnCollab('provider close', {
+    ...summarizeCloseEvent(event?.event),
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderOpen() {
+  logCollab('websocket open', {
+    roomName: collaborationRoomName.value,
+    url: hocuspocusUrl,
+  })
+}
+
+function handleProviderConnect() {
+  logCollab('websocket connected', {
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderAuthenticated(event: { scope?: string }) {
+  logCollab('provider authenticated', {
+    scope: event?.scope,
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderAuthenticationFailed(event: { reason?: string }) {
+  warnCollab('provider authentication failed', {
+    reason: event?.reason,
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderUnsyncedChanges(event: { number?: number }) {
+  logCollab('provider unsynced changes', {
+    number: event?.number,
+    roomName: collaborationRoomName.value,
+  })
+}
+
+function handleProviderIncomingMessage() {
+  providerLogState.incomingMessages += 1
+  if (providerLogState.incomingMessages <= 10 || providerLogState.incomingMessages % 20 === 0) {
+    logCollab('provider incoming message', {
+      count: providerLogState.incomingMessages,
+      roomName: collaborationRoomName.value,
+      synced: provider.synced,
+    })
+  }
+}
+
+function handleProviderOutgoingMessage(event: { message?: { type?: number; description?: string } }) {
+  providerLogState.outgoingMessages += 1
+  if (providerLogState.outgoingMessages <= 10 || providerLogState.outgoingMessages % 20 === 0) {
+    logCollab('provider outgoing message', {
+      count: providerLogState.outgoingMessages,
+      type: event?.message?.type,
+      description: event?.message?.description,
+      roomName: collaborationRoomName.value,
+    })
+  }
+}
+
+/**
+ * provider 负责把本地 Y.Doc 通过 WebSocket 同步到 Hocuspocus。
+ * name 就是房间名，也就是本题要求的 docId。
+ * 这里最关键的只有 url、name、document 三项：
+ * - url: Hocuspocus 网关地址
+ * - name: 房间名，也就是 docId
+ * - document: 当前本地 Y.Doc
+ */
+const provider = new HocuspocusProvider({
+  url: hocuspocusUrl,
+  name: collaborationRoomName.value,
+  document: ydoc,
+  onOpen: handleProviderOpen,
+  onConnect: handleProviderConnect,
+  onStatus: handleProviderStatus,
+  onSynced: handleProviderSynced,
+  onAwarenessUpdate: handleProviderAwarenessUpdate,
+  onDisconnect: handleProviderDisconnect,
+  onClose: handleProviderClose,
+  onAuthenticated: handleProviderAuthenticated,
+  onAuthenticationFailed: handleProviderAuthenticationFailed,
+  onUnsyncedChanges: handleProviderUnsyncedChanges,
+  onMessage: handleProviderIncomingMessage,
+  onOutgoingMessage: handleProviderOutgoingMessage,
+})
+
+logCollab('provider created', {
+  roomName: collaborationRoomName.value,
+  effectiveName: provider.effectiveName,
+  manageSocket: provider.manageSocket,
+  isAttached: provider.isAttached,
+})
+
+function renderCursor(user: { name: string; color: string }) {
+  const cursor = document.createElement('span')
+  cursor.classList.add('collaboration-cursor__caret')
+  cursor.style.borderColor = user.color
+
+  const label = document.createElement('span')
+  label.classList.add('collaboration-cursor__label')
+  label.style.backgroundColor = user.color
+  label.textContent = user.name
+
+  cursor.appendChild(label)
+  return cursor
+}
 
 const editor = useEditor({
   extensions: [
-    StarterKit,
+    /**
+     * 协同模式下必须禁用 StarterKit 自带 history。
+     * 否则本地历史栈会和 Y.js 的协同历史互相打架，出现撤销错乱。
+     */
+    StarterKit.configure({
+      undoRedo: false,
+      link: false,
+      underline: false,
+    }),
+    /**
+     * Collaboration 把当前编辑器绑定到同一个 Y.Doc。
+     * 后续所有改动都会先写入 Y.Doc，再由 provider 通过 WebSocket 同步到服务端。
+     */
+    Collaboration.configure({
+      document: ydoc,
+    }),
+    /**
+     * CollaborationCursor 会把当前用户信息写入 awareness，
+     * 这样其他成员就能看到彩色光标和用户名标签。
+     */
+    CollaborationCursor.configure({
+      provider,
+      user: {
+        id: currentUserProfile.id,
+        name: currentUserProfile.name,
+        color: currentUserProfile.color,
+        avatar: currentUserProfile.avatar,
+      },
+      render: renderCursor,
+    }),
     TextStyle,
     FontSizeExtension,
     Color,
@@ -233,12 +552,58 @@ const editor = useEditor({
       openOnClick: false,
     }),
   ],
-  content: editorContent,
   editorProps: {
     attributes: {
       class: 'editor-surface',
     },
   },
+  onCreate: ({ editor }) => {
+    logCollab('tiptap editor created', {
+      editable: editor.isEditable,
+      empty: editor.isEmpty,
+      textLength: editor.getText().length,
+    })
+  },
+  onUpdate: ({ editor }) => {
+    providerLogState.editorUpdates += 1
+    if (providerLogState.editorUpdates <= 10 || providerLogState.editorUpdates % 20 === 0) {
+      logCollab('tiptap editor update', {
+        count: providerLogState.editorUpdates,
+        textLength: editor.getText().length,
+      })
+    }
+  },
+  onDestroy: () => {
+    logCollab('tiptap editor destroyed', {
+      roomName: collaborationRoomName.value,
+    })
+  },
+})
+
+const visibleMembers = computed(() => {
+  if (collaborationMembers.value.length > 0) {
+    return collaborationMembers.value
+  }
+  return [
+    {
+      id: currentUserProfile.id,
+      name: currentUserProfile.name,
+      role: '我',
+      avatar: currentUserProfile.avatar,
+      active: true,
+    },
+    ...defaultOnlineMembers,
+  ]
+})
+
+const connectionStatusText = computed(() => {
+  if (connectionStatus.value === 'connected') {
+    return documentSynced.value ? '协同已同步' : '已连接，等待同步'
+  }
+  if (connectionStatus.value === 'connecting') {
+    return '正在连接协同服务'
+  }
+  return '协同连接已断开'
 })
 
 const currentFontSizeLabel = computed(() => {
@@ -290,10 +655,18 @@ const increaseZoom = () => {
   zoomPercent.value = Math.min(200, zoomPercent.value + 10)
 }
 
+const undoCollaboration = () => {
+  undoManager.undo()
+}
+
+const redoCollaboration = () => {
+  undoManager.redo()
+}
+
 const toolbarRows: ToolbarItem[][] = [
   [
-    { icon: Undo2, action: () => editor.value?.chain().focus().undo().run(), label: '撤销' },
-    { icon: Redo2, action: () => editor.value?.chain().focus().redo().run(), label: '重做' },
+    { icon: Undo2, action: undoCollaboration, label: '协同撤销' },
+    { icon: Redo2, action: redoCollaboration, label: '协同重做' },
     { icon: Bold, action: () => editor.value?.chain().focus().toggleBold().run(), label: '粗体', active: () => editor.value?.isActive('bold') },
     { icon: Italic, action: () => editor.value?.chain().focus().toggleItalic().run(), label: '斜体', active: () => editor.value?.isActive('italic') },
     { icon: UnderlineIcon, action: () => editor.value?.chain().focus().toggleUnderline().run(), label: '下划线', active: () => editor.value?.isActive('underline') },
@@ -352,6 +725,12 @@ const wordCount = computed(() => {
 
 const handleBack = async () => {
   const teamId = String(route.params.id || '')
+  logCollab('点击返回', {
+    teamId,
+    documentId: documentId.value,
+    connectionStatus: connectionStatus.value,
+    synced: documentSynced.value,
+  })
   if (teamId) {
     await router.push({ path: `/teams/${teamId}`, query: { tab: 'collabDocs' } })
     return
@@ -359,8 +738,39 @@ const handleBack = async () => {
   await router.push('/dashboard')
 }
 
-onBeforeUnmount(() => {
+let collaborationDisposed = false
+
+function disposeCollaboration() {
+  if (collaborationDisposed) {
+    logCollab('dispose skipped: already disposed', {
+      roomName: collaborationRoomName.value,
+    })
+    return
+  }
+  collaborationDisposed = true
+  logCollab('dispose collaboration start', {
+    roomName: collaborationRoomName.value,
+    providerSynced: provider.synced,
+    providerAttached: provider.isAttached,
+    hasUnsyncedChanges: provider.hasUnsyncedChanges,
+  })
   editor.value?.destroy()
+  provider.destroy()
+  undoManager.destroy()
+  ydoc.off('update', handleYdocUpdate)
+  ydoc.destroy()
+  connectionStatus.value = 'disconnected'
+  logCollab('dispose collaboration done', {
+    roomName: collaborationRoomName.value,
+  })
+}
+
+onBeforeRouteLeave(() => {
+  disposeCollaboration()
+})
+
+onBeforeUnmount(() => {
+  disposeCollaboration()
 })
 </script>
 
@@ -377,9 +787,9 @@ onBeforeUnmount(() => {
         </button>
         <div class="doc-meta">
           <h1>{{ documentTitle }}</h1>
-          <div class="doc-status">
+          <div class="doc-status" :class="connectionStatus">
             <span class="status-dot"></span>
-            <span>已保存</span>
+            <span>{{ connectionStatusText }}</span>
             <ChevronDown />
           </div>
         </div>
@@ -398,11 +808,11 @@ onBeforeUnmount(() => {
       <aside class="members-panel">
         <div class="panel-title">
           <span>在线成员</span>
-          <span class="panel-count">({{ onlineMembers.length }})</span>
+          <span class="panel-count">({{ visibleMembers.length }})</span>
         </div>
 
         <div class="member-list">
-          <div v-for="member in onlineMembers" :key="member.id" class="member-item">
+          <div v-for="member in visibleMembers" :key="member.id" class="member-item">
             <div class="member-avatar-wrap">
               <img class="member-avatar" :src="member.avatar" :alt="member.name" />
               <span class="member-presence" :class="{ idle: !member.active }"></span>
@@ -710,12 +1120,39 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+.doc-status.connected {
+  color: #2c7a52;
+}
+
+.doc-status.connecting {
+  color: #8b6b1a;
+}
+
+.doc-status.disconnected {
+  color: #b24d4d;
+}
+
 .status-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #d7dce6;
   box-shadow: 0 0 0 4px rgba(215, 220, 230, 0.35);
+}
+
+.doc-status.connected .status-dot {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.18);
+}
+
+.doc-status.connecting .status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.18);
+}
+
+.doc-status.disconnected .status-dot {
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.18);
 }
 
 .member-stack img,
@@ -1092,6 +1529,28 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   background: #eef3fb;
   color: #31486b;
+}
+
+:deep(.collaboration-cursor__caret) {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left: 2px solid #2f7fff;
+  border-right: 2px solid transparent;
+  pointer-events: none;
+}
+
+:deep(.collaboration-cursor__label) {
+  position: absolute;
+  top: -1.45em;
+  left: -1px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .editor-footer {
